@@ -9,20 +9,59 @@ import numpy as np
 SCENE = """
 <mujoco model="rocket3d">
   <option timestep="0.02" gravity="0 0 -9.81" integrator="RK4"/>
+  <visual>
+    <headlight ambient="0.30 0.30 0.30" diffuse="0.55 0.55 0.55"
+               specular="0.15 0.15 0.15"/>
+  </visual>
+  <asset>
+    <texture name="sky" type="skybox" builtin="gradient"
+             rgb1="0.34 0.60 0.87" rgb2="0.82 0.91 0.98" width="512" height="512"/>
+    <texture name="ground_pattern" type="2d" builtin="checker"
+             rgb1="0.54 0.60 0.64" rgb2="0.47 0.53 0.57" width="512" height="512"/>
+    <material name="ground_material" texture="ground_pattern" texrepeat="10 10"
+              texuniform="true" reflectance="0"/>
+  </asset>
   <default><geom friction="1.2 0.02 0.002" solref="0.015 1"/></default>
   <worldbody>
-    <geom name="ground" type="plane" size="40 40 0.1" rgba="0.18 0.20 0.23 1"/>
-    <geom name="pad" type="cylinder" pos="0 0 -0.018" size="3.0 0.012"
-          contype="0" conaffinity="0" rgba="0.12 0.7 0.28 1"/>
+    <light name="sun" pos="-8 -10 22" dir="0.3 0.4 -1" directional="true"
+           diffuse="0.45 0.45 0.42" ambient="0.12 0.12 0.12"/>
+    <geom name="ground" type="plane" size="200 200 0.1" material="ground_material"/>
+    <!-- These pad markings are visual only. Feet still contact the ground at z=0. -->
+    <geom name="pad" type="cylinder" pos="0 0 0.006" size="3.0 0.004"
+          contype="0" conaffinity="0" mass="0" rgba="0.98 0.73 0.14 1"/>
+    <geom name="pad_center" type="cylinder" pos="0 0 0.012" size="2.78 0.002"
+          contype="0" conaffinity="0" mass="0" rgba="0.12 0.30 0.42 1"/>
+    <geom name="pad_bullseye" type="cylinder" pos="0 0 0.016" size="0.22 0.002"
+          contype="0" conaffinity="0" mass="0" rgba="0.98 0.98 0.90 1"/>
     <body name="rocket" pos="0 0 10">
       <freejoint name="root"/>
       <inertial pos="0 0 0" mass="42.5" diaginertia="8 8 2.5"/>
       <geom name="hull" type="cylinder" size="0.38 0.90" mass="0"
-            rgba="0.78 0.82 0.88 1"/>
-      <geom name="foot_fl" type="sphere" pos="0.70 0.70 -1.32" size="0.12" mass="0"/>
-      <geom name="foot_fr" type="sphere" pos="0.70 -0.70 -1.32" size="0.12" mass="0"/>
-      <geom name="foot_bl" type="sphere" pos="-0.70 0.70 -1.32" size="0.12" mass="0"/>
-      <geom name="foot_br" type="sphere" pos="-0.70 -0.70 -1.32" size="0.12" mass="0"/>
+            rgba="0.91 0.94 0.96 1"/>
+      <geom name="nose" type="sphere" pos="0 0 0.90" size="0.38" mass="0"
+            contype="0" conaffinity="0" rgba="0.91 0.94 0.96 1"/>
+      <geom name="body_band" type="cylinder" pos="0 0 0.27" size="0.386 0.10"
+            mass="0" contype="0" conaffinity="0" rgba="0.90 0.29 0.17 1"/>
+      <geom name="nozzle" type="cylinder" pos="0 0 -0.98" size="0.22 0.13"
+            mass="0" contype="0" conaffinity="0" rgba="0.22 0.25 0.28 1"/>
+      <geom name="engine_flame" type="capsule" fromto="0 0 -1.10 0 0 -1.65"
+            size="0.10" mass="0" contype="0" conaffinity="0" rgba="1 0.45 0.08 0"/>
+      <geom name="leg_fl" type="capsule" fromto="0.23 0.23 -0.70 0.70 0.70 -1.32"
+            size="0.055" mass="0" contype="0" conaffinity="0" rgba="0.76 0.80 0.83 1"/>
+      <geom name="leg_fr" type="capsule" fromto="0.23 -0.23 -0.70 0.70 -0.70 -1.32"
+            size="0.055" mass="0" contype="0" conaffinity="0" rgba="0.76 0.80 0.83 1"/>
+      <geom name="leg_bl" type="capsule" fromto="-0.23 0.23 -0.70 -0.70 0.70 -1.32"
+            size="0.055" mass="0" contype="0" conaffinity="0" rgba="0.76 0.80 0.83 1"/>
+      <geom name="leg_br" type="capsule" fromto="-0.23 -0.23 -0.70 -0.70 -0.70 -1.32"
+            size="0.055" mass="0" contype="0" conaffinity="0" rgba="0.76 0.80 0.83 1"/>
+      <geom name="foot_fl" type="sphere" pos="0.70 0.70 -1.32" size="0.12" mass="0"
+            rgba="0.22 0.25 0.28 1"/>
+      <geom name="foot_fr" type="sphere" pos="0.70 -0.70 -1.32" size="0.12" mass="0"
+            rgba="0.22 0.25 0.28 1"/>
+      <geom name="foot_bl" type="sphere" pos="-0.70 0.70 -1.32" size="0.12" mass="0"
+            rgba="0.22 0.25 0.28 1"/>
+      <geom name="foot_br" type="sphere" pos="-0.70 -0.70 -1.32" size="0.12" mass="0"
+            rgba="0.22 0.25 0.28 1"/>
     </body>
   </worldbody>
 </mujoco>

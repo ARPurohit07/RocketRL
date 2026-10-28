@@ -10,6 +10,13 @@ from stable_baselines3 import PPO
 from rocket3d_env import Rocket3DEnv
 
 
+def frame_camera(viewer, position):
+    """Keep the rocket and landing target in the same view."""
+    x, y, z = position
+    viewer.cam.lookat[:] = (0.5 * x, 0.5 * y, max(1.8, 0.5 * z))
+    viewer.cam.distance = max(11.0, 2.0 * z)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", default="checkpoints/improved.zip")
@@ -23,15 +30,17 @@ def main():
     model = PPO.load(args.checkpoint, device=args.device)
     env = FrameStackObservation(Rocket3DEnv(challenge=1.0), 8)
     viewer = None
+    flame_id = None
     if not args.headless:
         import mujoco.viewer
 
-        viewer = mujoco.viewer.launch_passive(env.unwrapped.physics.model,
-                                              env.unwrapped.physics.data)
+        viewer = mujoco.viewer.launch_passive(
+            env.unwrapped.physics.model, env.unwrapped.physics.data,
+            show_left_ui=False, show_right_ui=False,
+        )
+        flame_id = env.unwrapped.physics.model.geom("engine_flame").id
         viewer.cam.azimuth = 45
-        viewer.cam.elevation = -25
-        viewer.cam.distance = 24
-        viewer.cam.lookat[:] = (0, 0, 6)
+        viewer.cam.elevation = -20
     try:
         for episode in range(args.episodes):
             if viewer is not None and not viewer.is_running():
@@ -40,15 +49,18 @@ def main():
             obs, _ = env.reset(seed=seed)
             total_reward = 0.0
             if viewer is not None:
+                env.unwrapped.physics.model.geom_rgba[flame_id, 3] = 0.0
+                frame_camera(viewer, env.unwrapped.physics.position)
                 viewer.sync()
             while True:
                 action, _ = model.predict(obs, deterministic=True)
                 obs, reward, terminated, truncated, info = env.step(action)
                 total_reward += reward
                 if viewer is not None:
-                    x, y, z = info["position"]
-                    viewer.cam.lookat[:] = (0.25 * x, 0.25 * y, max(3.0, 0.5 * z))
-                    viewer.cam.distance = max(18.0, 1.6 * z)
+                    env.unwrapped.physics.model.geom_rgba[flame_id, 3] = (
+                        0.85 if action[0] and env.unwrapped.physics.fuel > 0 else 0.0
+                    )
+                    frame_camera(viewer, info["position"])
                     viewer.sync()
                     time.sleep(env.unwrapped.control_repeat *
                                env.unwrapped.physics.DT)

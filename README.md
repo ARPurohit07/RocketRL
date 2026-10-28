@@ -36,7 +36,7 @@ Use the project virtual environment. Install dependencies listed in `requirement
 .\.venv\Scripts\python.exe play_rocket.py --checkpoint checkpoints/improved.zip
 ```
 
-For terminal only playback, add `--headless`. To reproduce an episode, add `--seed N`.
+The interactive viewer shows the rocket, engine flame, and yellow-bordered landing target in daylight. MuJoCo's control panels are hidden to leave more room for the flight. For terminal only playback, add `--headless`. To reproduce an episode, add `--seed N`.
 
 Continue PPO training from the current improved checkpoint:
 
