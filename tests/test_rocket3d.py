@@ -121,6 +121,17 @@ def test_far_start_training_sampling_does_not_narrow_default_starts():
     assert min(full_radii) < 2.0
 
 
+def test_middle_height_offset_training_sampling():
+    physics = Rocket3DPhysics(
+        challenge=1.0, height_floor=10.0, height_ceiling=16.0,
+        min_start_radius=3.0,
+    )
+    for seed in range(64):
+        physics.reset(seed=seed)
+        assert 10.0 <= physics.position[2] <= 16.0
+        assert np.linalg.norm(physics.position[:2]) >= 3.0
+
+
 def test_dual_axis_views_separate_lateral_state():
     state = torch.zeros((1, 8, 18))
     state[..., 0] = 0.4

@@ -56,8 +56,8 @@ class Rocket3DPhysics:
     FULL = StartRange(4.0, (6.0, 24.0), 1.2, (-2.8, 0.5), 0.18, 0.10)
 
     def __init__(
-        self, challenge=1.0, focus_axis=None, height_ceiling=None,
-        min_start_radius=0.0,
+        self, challenge=1.0, focus_axis=None, height_floor=None,
+        height_ceiling=None, min_start_radius=0.0,
     ):
         self.model = mujoco.MjModel.from_xml_string(SCENE)
         self.data = mujoco.MjData(self.model)
@@ -72,6 +72,9 @@ class Rocket3DPhysics:
         self.focus_axis = focus_axis
         if height_ceiling is not None and height_ceiling <= self.CORE.height[0]:
             raise ValueError("height_ceiling must exceed the minimum start height")
+        if height_floor is not None and height_floor >= self.FULL.height[1]:
+            raise ValueError("height_floor must be below the maximum start height")
+        self.height_floor = height_floor
         self.height_ceiling = height_ceiling
         if min_start_radius < 0:
             raise ValueError("min_start_radius must be nonnegative")
@@ -104,12 +107,18 @@ class Rocket3DPhysics:
                 spec.height[1] if self.height_ceiling is None
                 else min(spec.height[1], self.height_ceiling)
             )
+            min_height = (
+                spec.height[0] if self.height_floor is None
+                else max(spec.height[0], self.height_floor)
+            )
+            if min_height >= max_height:
+                raise ValueError("Height sampling range is empty")
             for _ in range(1000):
                 position = np.array([
                     rng.uniform(-min(spec.xy, 1.0), min(spec.xy, 1.0))
                     if self.focus_axis == "y" else rng.uniform(-spec.xy, spec.xy),
                     rng.uniform(-spec.xy, spec.xy),
-                    rng.uniform(spec.height[0], max_height),
+                    rng.uniform(min_height, max_height),
                 ])
                 if np.linalg.norm(position[:2]) < self.min_start_radius:
                     continue

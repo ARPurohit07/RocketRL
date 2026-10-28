@@ -23,12 +23,14 @@ EVAL_SEEDS = tuple(range(1_000_000, 1_000_064))
 
 
 def make_env(
-    challenge, focus_axis=None, height_ceiling=None, min_start_radius=0.0,
+    challenge, focus_axis=None, height_floor=None, height_ceiling=None,
+    min_start_radius=0.0,
 ):
     return lambda: Monitor(FrameStackObservation(
         Rocket3DEnv(
             challenge=challenge, focus_axis=focus_axis,
-            height_ceiling=height_ceiling, min_start_radius=min_start_radius,
+            height_floor=height_floor, height_ceiling=height_ceiling,
+            min_start_radius=min_start_radius,
         ), 8
     ))
 
@@ -50,6 +52,8 @@ class TrainingMonitor(BaseCallback):
         self.last_bucket = -1
         self.challenge = start_challenge
         self.outcomes = []
+        self.low_outcomes = []
+        self.mid_outcomes = []
 
     def _on_training_start(self):
         full = evaluate(self.model, EVAL_SEEDS, challenge=1.0)
@@ -104,8 +108,14 @@ class TrainingMonitor(BaseCallback):
         for worker, (done, info) in enumerate(zip(
             self.locals.get("dones", ()), self.locals.get("infos", ())
         )):
-            if done and worker < 4:
-                self.outcomes.append(int(info.get("is_success", False)))
+            if done:
+                outcome = int(info.get("is_success", False))
+                if worker < 4:
+                    self.outcomes.append(outcome)
+                elif worker < 6:
+                    self.low_outcomes.append(outcome)
+                else:
+                    self.mid_outcomes.append(outcome)
         if len(self.outcomes) >= 64:
             rate = float(np.mean(self.outcomes))
             target = 0.40 if self.focus_axis else 0.58
@@ -123,7 +133,16 @@ class TrainingMonitor(BaseCallback):
             self.outcomes.clear()
             for wrapped in self.training_env.envs[:4]:
                 wrapped.unwrapped.set_challenge(self.challenge)
-            print(f"Training step={self.num_timesteps} recent_success={rate:.1%} challenge={self.challenge:.3f}", flush=True)
+            low_rate = float(np.mean(self.low_outcomes)) if self.low_outcomes else 0.0
+            mid_rate = float(np.mean(self.mid_outcomes)) if self.mid_outcomes else 0.0
+            print(
+                f"Training step={self.num_timesteps} recent_success={rate:.1%} "
+                f"low_offset_success={low_rate:.1%} "
+                f"mid_offset_success={mid_rate:.1%} "
+                f"challenge={self.challenge:.3f}", flush=True,
+            )
+            self.low_outcomes.clear()
+            self.mid_outcomes.clear()
         if self.num_timesteps % self.eval_interval:
             return True
         full = evaluate(self.model, EVAL_SEEDS, challenge=1.0)
@@ -171,7 +190,10 @@ def main():
     parser.add_argument("--train-head-only", action="store_true")
     parser.add_argument("--focus-axis", choices=("y",))
     parser.add_argument("--low-height-ceiling", type=float, default=10.0)
-    parser.add_argument("--far-start-radius", type=float, default=3.5)
+    parser.add_argument("--low-start-radius", type=float, default=2.0)
+    parser.add_argument("--mid-height-floor", type=float, default=10.0)
+    parser.add_argument("--mid-height-ceiling", type=float, default=16.0)
+    parser.add_argument("--mid-start-radius", type=float, default=3.0)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
     if args.steps <= 0 or args.eval_interval <= 0 or args.learning_rate <= 0:
@@ -186,12 +208,16 @@ def main():
     env = DummyVecEnv([
         make_env(
             challenge, focus_axis=args.focus_axis,
-            height_ceiling=ceiling, min_start_radius=radius,
+            height_floor=floor, height_ceiling=ceiling,
+            min_start_radius=radius,
         )
-        for challenge, ceiling, radius in (
-            [(args.challenge_start, None, 0.0)] * 4
-            + [(1.0, args.low_height_ceiling, 0.0)] * 2
-            + [(1.0, None, args.far_start_radius)] * 2
+        for challenge, floor, ceiling, radius in (
+            [(args.challenge_start, None, None, 0.0)] * 4
+            + [(1.0, None, args.low_height_ceiling, args.low_start_radius)] * 2
+            + [(
+                1.0, args.mid_height_floor, args.mid_height_ceiling,
+                args.mid_start_radius,
+            )] * 2
         )
     ])
     try:
