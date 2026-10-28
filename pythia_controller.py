@@ -22,7 +22,6 @@ class PythiaController(BaseFeaturesExtractor):
     def __init__(self, observation_space):
         super().__init__(observation_space, features_dim=128)
 
-        model_path = "./models/pythia-70m"
         if len(observation_space.shape) != 2 or observation_space.shape[0] != 8:
             raise ValueError(
                 f"Expected eight stacked states, got {observation_space.shape}"
