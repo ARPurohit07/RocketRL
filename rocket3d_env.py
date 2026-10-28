@@ -32,6 +32,9 @@ class Rocket3DEnv(gym.Env):
     def set_challenge(self, challenge):
         self.physics.set_challenge(challenge)
 
+    def set_min_start_radius(self, radius):
+        self.physics.set_min_start_radius(radius)
+
     def _observation(self):
         return np.clip(self.physics.observe(), -1.0, 1.0).astype(np.float32)
 

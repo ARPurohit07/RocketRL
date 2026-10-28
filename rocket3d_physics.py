@@ -76,11 +76,14 @@ class Rocket3DPhysics:
             raise ValueError("height_floor must be below the maximum start height")
         self.height_floor = height_floor
         self.height_ceiling = height_ceiling
-        if min_start_radius < 0:
-            raise ValueError("min_start_radius must be nonnegative")
-        self.min_start_radius = float(min_start_radius)
+        self.set_min_start_radius(min_start_radius)
         self.set_challenge(challenge)
         self.reset(seed=0)
+
+    def set_min_start_radius(self, radius):
+        if radius < 0:
+            raise ValueError("min_start_radius must be nonnegative")
+        self.min_start_radius = float(radius)
 
     def set_challenge(self, challenge):
         self.challenge = float(np.clip(challenge, 0.0, 1.0))

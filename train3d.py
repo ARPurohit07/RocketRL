@@ -39,6 +39,8 @@ class TrainingMonitor(BaseCallback):
     def __init__(
         self, total_steps, start_challenge, eval_interval, core_floor=0.90,
         focus_axis=None, source=None, compare_existing=False,
+        low_radius_start=1.0, low_radius_target=2.5,
+        mid_radius_start=2.0, mid_radius_target=3.5,
     ):
         super().__init__(verbose=0)
         self.total_steps = int(total_steps)
@@ -54,6 +56,12 @@ class TrainingMonitor(BaseCallback):
         self.outcomes = []
         self.low_outcomes = []
         self.mid_outcomes = []
+        self.low_radius_start = low_radius_start
+        self.low_radius_target = low_radius_target
+        self.mid_radius_start = mid_radius_start
+        self.mid_radius_target = mid_radius_target
+        self.low_radius = low_radius_start
+        self.mid_radius = mid_radius_start
 
     def _on_training_start(self):
         full = evaluate(self.model, EVAL_SEEDS, challenge=1.0)
@@ -135,10 +143,29 @@ class TrainingMonitor(BaseCallback):
                 wrapped.unwrapped.set_challenge(self.challenge)
             low_rate = float(np.mean(self.low_outcomes)) if self.low_outcomes else 0.0
             mid_rate = float(np.mean(self.mid_outcomes)) if self.mid_outcomes else 0.0
+            if len(self.low_outcomes) >= 16 and low_rate >= 0.55:
+                self.low_radius += 0.25
+            if len(self.mid_outcomes) >= 16 and mid_rate >= 0.55:
+                self.mid_radius += 0.25
+            progress = min(1.0, self.num_timesteps / self.total_steps)
+            self.low_radius = min(self.low_radius_target, max(
+                self.low_radius,
+                self.low_radius_start
+                + progress * (self.low_radius_target - self.low_radius_start),
+            ))
+            self.mid_radius = min(self.mid_radius_target, max(
+                self.mid_radius,
+                self.mid_radius_start
+                + progress * (self.mid_radius_target - self.mid_radius_start),
+            ))
+            for wrapped in self.training_env.envs[4:6]:
+                wrapped.unwrapped.set_min_start_radius(self.low_radius)
+            for wrapped in self.training_env.envs[6:8]:
+                wrapped.unwrapped.set_min_start_radius(self.mid_radius)
             print(
                 f"Training step={self.num_timesteps} recent_success={rate:.1%} "
-                f"low_offset_success={low_rate:.1%} "
-                f"mid_offset_success={mid_rate:.1%} "
+                f"low_offset_success={low_rate:.1%}@{self.low_radius:.2f}m "
+                f"mid_offset_success={mid_rate:.1%}@{self.mid_radius:.2f}m "
                 f"challenge={self.challenge:.3f}", flush=True,
             )
             self.low_outcomes.clear()
@@ -152,6 +179,7 @@ class TrainingMonitor(BaseCallback):
         record = {
             "environment_version": 3,
             "step": self.num_timesteps, "challenge": self.challenge,
+            "low_radius": self.low_radius, "mid_radius": self.mid_radius,
             "full": full, "near": near, "core": core, "focus": focus,
         }
         METRICS.parent.mkdir(parents=True, exist_ok=True)
@@ -190,10 +218,12 @@ def main():
     parser.add_argument("--train-head-only", action="store_true")
     parser.add_argument("--focus-axis", choices=("y",))
     parser.add_argument("--low-height-ceiling", type=float, default=10.0)
-    parser.add_argument("--low-start-radius", type=float, default=2.0)
+    parser.add_argument("--low-start-radius", type=float, default=1.0)
+    parser.add_argument("--low-target-radius", type=float, default=2.5)
     parser.add_argument("--mid-height-floor", type=float, default=10.0)
     parser.add_argument("--mid-height-ceiling", type=float, default=16.0)
-    parser.add_argument("--mid-start-radius", type=float, default=3.0)
+    parser.add_argument("--mid-start-radius", type=float, default=2.0)
+    parser.add_argument("--mid-target-radius", type=float, default=3.5)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
     if args.steps <= 0 or args.eval_interval <= 0 or args.learning_rate <= 0:
@@ -204,6 +234,10 @@ def main():
         raise ValueError("Gamma must be in (0, 1); GAE lambda must be in (0, 1]")
     if args.train_lora and args.train_head_only:
         raise ValueError("Choose LoRA training or head-only training")
+    if not 0 <= args.low_start_radius <= args.low_target_radius:
+        raise ValueError("Low-offset radius range must increase from a nonnegative start")
+    if not 0 <= args.mid_start_radius <= args.mid_target_radius:
+        raise ValueError("Middle-offset radius range must increase from a nonnegative start")
     torch.set_num_threads(2)
     env = DummyVecEnv([
         make_env(
@@ -284,6 +318,10 @@ def main():
             args.steps, args.challenge_start, args.eval_interval,
             focus_axis=args.focus_axis, source=source,
             compare_existing=args.position_scale != 1.0,
+            low_radius_start=args.low_start_radius,
+            low_radius_target=args.low_target_radius,
+            mid_radius_start=args.mid_start_radius,
+            mid_radius_target=args.mid_target_radius,
         )
         model.learn(
             total_timesteps=args.steps,

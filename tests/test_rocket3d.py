@@ -119,6 +119,9 @@ def test_far_start_training_sampling_does_not_narrow_default_starts():
         full_radii.append(np.linalg.norm(full.position[:2]))
     assert min(far_radii) >= 3.5
     assert min(full_radii) < 2.0
+    far.set_min_start_radius(4.0)
+    far.reset(seed=7)
+    assert np.linalg.norm(far.position[:2]) >= 4.0
 
 
 def test_middle_height_offset_training_sampling():
