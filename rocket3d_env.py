@@ -110,16 +110,7 @@ class Rocket3DEnv(gym.Env):
         required_clearance = 0.5 + 1.5 * off_pad_distance
         altitude_shortfall = max(0.0, required_clearance - altitude)
         reward -= 0.35 * frames * altitude_shortfall**2
-        approach_weight = np.clip(1.0 - altitude / 4.0, 0.0, 1.0)
-        if approach_weight:
-            lateral_tilt = np.linalg.norm(p.rotation_matrix[:2, 2])
-            lateral_spin = np.linalg.norm(p.angular_velocity[:2])
-            lateral_speed = np.linalg.norm(velocity[:2])
-            reward -= frames * approach_weight * (
-                1.5 * lateral_tilt**2
-                + 0.3 * lateral_spin**2
-                + 0.15 * lateral_speed**2
-            )
+        reward -= 0.03 * np.linalg.norm(velocity[:2]) if altitude < 4.0 else 0.0
         if p.status == "landed":
             reward += 150.0
         elif p.status == "crashed":
