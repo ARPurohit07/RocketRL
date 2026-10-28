@@ -82,6 +82,21 @@ def evaluate(
         band = [row for row in records if lo <= row["start_radius"] < hi]
         if band:
             radius_bands[f"{lo}-{hi}m"] = sum(row["success"] for row in band) / len(band)
+    combined_bands = {}
+    for height_lo, height_hi in ((6, 10), (10, 16), (16, 24)):
+        for radius_lo, radius_hi in ((0, 2), (2, 4), (4, 6)):
+            band = [
+                row for row in records
+                if height_lo <= row["height"] < height_hi
+                and radius_lo <= row["start_radius"] < radius_hi
+            ]
+            if band:
+                combined_bands[
+                    f"height_{height_lo}-{height_hi}m_radius_{radius_lo}-{radius_hi}m"
+                ] = {
+                    "episodes": len(band),
+                    "landings": sum(row["success"] for row in band),
+                }
     return {
         "episodes": len(records),
         "landings": sum(row["success"] for row in records),
@@ -90,6 +105,7 @@ def evaluate(
         "failures": dict(failures),
         "by_height": height_bands,
         "by_start_radius": radius_bands,
+        "by_height_radius": combined_bands,
         "action_counts": {
             ",".join(map(str, action)): count
             for action, count in sorted(actions_taken.items())
