@@ -1,0 +1,8 @@
+gymnasium
+mujoco==3.17.0
+numpy
+peft
+pygame
+stable-baselines3
+torch
+transformers

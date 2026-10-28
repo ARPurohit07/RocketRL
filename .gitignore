@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.py[cod]
+logs/
+runs/
+.pytest_cache/
+rocket_pythia_phase2_best.zip
+models/pythia-70m/.cache/
+
