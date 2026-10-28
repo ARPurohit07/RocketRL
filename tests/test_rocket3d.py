@@ -107,6 +107,20 @@ def test_low_height_training_sampling_does_not_narrow_default_starts():
     assert max(full_heights) > 20.0
 
 
+def test_far_start_training_sampling_does_not_narrow_default_starts():
+    far = Rocket3DPhysics(challenge=1.0, min_start_radius=3.5)
+    full = Rocket3DPhysics(challenge=1.0)
+    far_radii = []
+    full_radii = []
+    for seed in range(64):
+        far.reset(seed=seed)
+        full.reset(seed=seed)
+        far_radii.append(np.linalg.norm(far.position[:2]))
+        full_radii.append(np.linalg.norm(full.position[:2]))
+    assert min(far_radii) >= 3.5
+    assert min(full_radii) < 2.0
+
+
 def test_dual_axis_views_separate_lateral_state():
     state = torch.zeros((1, 8, 18))
     state[..., 0] = 0.4

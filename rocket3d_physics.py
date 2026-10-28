@@ -55,7 +55,10 @@ class Rocket3DPhysics:
     CORE = StartRange(1.0, (7.0, 11.0), 0.25, (-1.0, -0.3), 0.04, 0.025)
     FULL = StartRange(4.0, (6.0, 24.0), 1.2, (-2.8, 0.5), 0.18, 0.10)
 
-    def __init__(self, challenge=1.0, focus_axis=None, height_ceiling=None):
+    def __init__(
+        self, challenge=1.0, focus_axis=None, height_ceiling=None,
+        min_start_radius=0.0,
+    ):
         self.model = mujoco.MjModel.from_xml_string(SCENE)
         self.data = mujoco.MjData(self.model)
         self.body_id = self.model.body("rocket").id
@@ -70,6 +73,9 @@ class Rocket3DPhysics:
         if height_ceiling is not None and height_ceiling <= self.CORE.height[0]:
             raise ValueError("height_ceiling must exceed the minimum start height")
         self.height_ceiling = height_ceiling
+        if min_start_radius < 0:
+            raise ValueError("min_start_radius must be nonnegative")
+        self.min_start_radius = float(min_start_radius)
         self.set_challenge(challenge)
         self.reset(seed=0)
 
@@ -92,6 +98,8 @@ class Rocket3DPhysics:
         rng = np.random.default_rng(seed)
         spec = self._range()
         if start is None:
+            if self.min_start_radius >= np.sqrt(2.0) * spec.xy:
+                raise ValueError("min_start_radius exceeds this challenge's start range")
             max_height = (
                 spec.height[1] if self.height_ceiling is None
                 else min(spec.height[1], self.height_ceiling)
@@ -103,6 +111,8 @@ class Rocket3DPhysics:
                     rng.uniform(-spec.xy, spec.xy),
                     rng.uniform(spec.height[0], max_height),
                 ])
+                if np.linalg.norm(position[:2]) < self.min_start_radius:
+                    continue
                 velocity = np.array([
                     rng.uniform(-min(spec.drift, 0.3), min(spec.drift, 0.3))
                     if self.focus_axis == "y" else rng.uniform(-spec.drift, spec.drift),

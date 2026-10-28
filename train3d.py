@@ -22,11 +22,13 @@ METRICS = Path("runs/3d_metrics.jsonl")
 EVAL_SEEDS = tuple(range(1_000_000, 1_000_064))
 
 
-def make_env(challenge, focus_axis=None, height_ceiling=None):
+def make_env(
+    challenge, focus_axis=None, height_ceiling=None, min_start_radius=0.0,
+):
     return lambda: Monitor(FrameStackObservation(
         Rocket3DEnv(
             challenge=challenge, focus_axis=focus_axis,
-            height_ceiling=height_ceiling,
+            height_ceiling=height_ceiling, min_start_radius=min_start_radius,
         ), 8
     ))
 
@@ -169,6 +171,7 @@ def main():
     parser.add_argument("--train-head-only", action="store_true")
     parser.add_argument("--focus-axis", choices=("y",))
     parser.add_argument("--low-height-ceiling", type=float, default=10.0)
+    parser.add_argument("--far-start-radius", type=float, default=3.5)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
     if args.steps <= 0 or args.eval_interval <= 0 or args.learning_rate <= 0:
@@ -181,11 +184,14 @@ def main():
         raise ValueError("Choose LoRA training or head-only training")
     torch.set_num_threads(2)
     env = DummyVecEnv([
-        make_env(challenge, focus_axis=args.focus_axis, height_ceiling=ceiling)
-        for challenge, ceiling in (
-            [(args.challenge_start, None)] * 4
-            + [(1.0, args.low_height_ceiling)] * 2
-            + [(1.0, None)] * 2
+        make_env(
+            challenge, focus_axis=args.focus_axis,
+            height_ceiling=ceiling, min_start_radius=radius,
+        )
+        for challenge, ceiling, radius in (
+            [(args.challenge_start, None, 0.0)] * 4
+            + [(1.0, args.low_height_ceiling, 0.0)] * 2
+            + [(1.0, None, args.far_start_radius)] * 2
         )
     ])
     try:

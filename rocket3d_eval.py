@@ -63,6 +63,9 @@ def evaluate(
                         "status": info["status"],
                         "reason": info["reason"],
                         "height": float(info["start"]["position"][2]),
+                        "start_radius": float(np.linalg.norm(
+                            info["start"]["position"][:2]
+                        )),
                     })
                     completed[i] += 1
                 reward_totals[i] = 0
@@ -74,6 +77,11 @@ def evaluate(
         band = [row for row in records if lo <= row["height"] < hi]
         if band:
             height_bands[f"{lo}-{hi}m"] = sum(row["success"] for row in band) / len(band)
+    radius_bands = {}
+    for lo, hi in ((0, 2), (2, 4), (4, 6)):
+        band = [row for row in records if lo <= row["start_radius"] < hi]
+        if band:
+            radius_bands[f"{lo}-{hi}m"] = sum(row["success"] for row in band) / len(band)
     return {
         "episodes": len(records),
         "landings": sum(row["success"] for row in records),
@@ -81,6 +89,7 @@ def evaluate(
         "mean_reward": np.mean([row["reward"] for row in records]).item(),
         "failures": dict(failures),
         "by_height": height_bands,
+        "by_start_radius": radius_bands,
         "action_counts": {
             ",".join(map(str, action)): count
             for action, count in sorted(actions_taken.items())

@@ -12,14 +12,14 @@ class Rocket3DEnv(gym.Env):
 
     def __init__(
         self, challenge=1.0, control_repeat=2, gamma=0.99,
-        focus_axis=None, height_ceiling=None,
+        focus_axis=None, height_ceiling=None, min_start_radius=0.0,
     ):
         super().__init__()
         if control_repeat < 1:
             raise ValueError("control_repeat must be positive")
         self.physics = Rocket3DPhysics(
             challenge=challenge, focus_axis=focus_axis,
-            height_ceiling=height_ceiling,
+            height_ceiling=height_ceiling, min_start_radius=min_start_radius,
         )
         self.control_repeat = int(control_repeat)
         self.gamma = float(gamma)
