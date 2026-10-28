@@ -166,6 +166,7 @@ def main():
     parser.add_argument("--action-logit-scale", type=float, default=1.0)
     parser.add_argument("--position-scale", type=float, default=1.0)
     parser.add_argument("--train-lora", action="store_true")
+    parser.add_argument("--train-head-only", action="store_true")
     parser.add_argument("--focus-axis", choices=("y",))
     parser.add_argument("--low-height-ceiling", type=float, default=10.0)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -176,6 +177,8 @@ def main():
         raise ValueError("Entropy coefficient must be nonnegative and scales positive")
     if not 0 < args.gamma < 1 or not 0 < args.gae_lambda <= 1:
         raise ValueError("Gamma must be in (0, 1); GAE lambda must be in (0, 1]")
+    if args.train_lora and args.train_head_only:
+        raise ValueError("Choose LoRA training or head-only training")
     torch.set_num_threads(2)
     env = DummyVecEnv([
         make_env(challenge, focus_axis=args.focus_axis, height_ceiling=ceiling)
@@ -206,13 +209,16 @@ def main():
         for parameter in model.policy.parameters():
             parameter.requires_grad = False
         modules = (
-            model.policy.features_extractor.input_adapter,
-            model.policy.features_extractor.output_adapter,
-            model.policy.features_extractor.residual,
             model.policy.mlp_extractor,
             model.policy.action_net,
             model.policy.value_net,
         )
+        if not args.train_head_only:
+            modules += (
+                model.policy.features_extractor.input_adapter,
+                model.policy.features_extractor.output_adapter,
+                model.policy.features_extractor.residual,
+            )
         for module in modules:
             for parameter in module.parameters():
                 parameter.requires_grad = True
@@ -225,6 +231,11 @@ def main():
             if lora_count == 0:
                 raise RuntimeError("No Pythia LoRA parameters found to train")
             print(f"Training {lora_count:,} Pythia LoRA parameters with PPO", flush=True)
+        print(
+            f"Trainable policy parameters: "
+            f"{sum(p.numel() for p in model.policy.parameters() if p.requires_grad):,}",
+            flush=True,
+        )
         model.policy.optimizer = model.policy.optimizer_class(
             model.policy.parameters(), lr=args.learning_rate,
             **model.policy.optimizer_kwargs,
