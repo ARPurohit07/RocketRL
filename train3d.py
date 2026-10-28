@@ -19,7 +19,9 @@ from rocket3d_eval import evaluate
 BASELINE = Path("checkpoints/baseline.zip")
 IMPROVED = Path("checkpoints/improved.zip")
 METRICS = Path("runs/3d_metrics.jsonl")
-EVAL_SEEDS = tuple(range(1_000_000, 1_000_064))
+FULL_EVAL_SEEDS = tuple(range(1_000_000, 1_000_200))
+NEAR_EVAL_SEEDS = FULL_EVAL_SEEDS[:64]
+CORE_EVAL_SEEDS = FULL_EVAL_SEEDS[:32]
 
 
 def make_env(
@@ -66,9 +68,9 @@ class TrainingMonitor(BaseCallback):
         self.run_config = run_config or {}
 
     def _on_training_start(self):
-        full = evaluate(self.model, EVAL_SEEDS, challenge=1.0)
-        near = evaluate(self.model, EVAL_SEEDS, challenge=0.25)
-        core = evaluate(self.model, EVAL_SEEDS[:32], challenge=0.0)
+        full = evaluate(self.model, FULL_EVAL_SEEDS, challenge=1.0)
+        near = evaluate(self.model, NEAR_EVAL_SEEDS, challenge=0.25)
+        core = evaluate(self.model, CORE_EVAL_SEEDS, challenge=0.0)
         focus = self._focus_eval(self.model)
         starting_score = self._score(full, near, core, focus)
         prior_score = starting_score if IMPROVED.exists() and not self.compare_existing else None
@@ -81,9 +83,9 @@ class TrainingMonitor(BaseCallback):
             print(f"Starting focused benchmark: {focus}", flush=True)
         if IMPROVED.exists() and self.compare_existing:
             previous = PPO.load(str(IMPROVED), device="cpu")
-            prior_full = evaluate(previous, EVAL_SEEDS, challenge=1.0)
-            prior_near = evaluate(previous, EVAL_SEEDS, challenge=0.25)
-            prior_core = evaluate(previous, EVAL_SEEDS[:32], challenge=0.0)
+            prior_full = evaluate(previous, FULL_EVAL_SEEDS, challenge=1.0)
+            prior_near = evaluate(previous, NEAR_EVAL_SEEDS, challenge=0.25)
+            prior_core = evaluate(previous, CORE_EVAL_SEEDS, challenge=0.0)
             prior_focus = self._focus_eval(previous)
             prior_score = self._score(prior_full, prior_near, prior_core, prior_focus)
             print(f"Protected improved checkpoint: full={prior_full['success_rate']:.1%} near={prior_near['success_rate']:.1%} core={prior_core['success_rate']:.1%}", flush=True)
@@ -99,7 +101,8 @@ class TrainingMonitor(BaseCallback):
         if self.focus_axis is None:
             return None
         return evaluate(
-            model, EVAL_SEEDS, challenge=0.6, focus_axis=self.focus_axis
+            model, NEAR_EVAL_SEEDS, challenge=0.6,
+            focus_axis=self.focus_axis,
         )
 
     def _score(self, full, near, core, focus=None):
@@ -174,9 +177,9 @@ class TrainingMonitor(BaseCallback):
             self.mid_outcomes.clear()
         if self.num_timesteps % self.eval_interval:
             return True
-        full = evaluate(self.model, EVAL_SEEDS, challenge=1.0)
-        near = evaluate(self.model, EVAL_SEEDS, challenge=0.25)
-        core = evaluate(self.model, EVAL_SEEDS[:32], challenge=0.0)
+        full = evaluate(self.model, FULL_EVAL_SEEDS, challenge=1.0)
+        near = evaluate(self.model, NEAR_EVAL_SEEDS, challenge=0.25)
+        core = evaluate(self.model, CORE_EVAL_SEEDS, challenge=0.0)
         focus = self._focus_eval(self.model)
         record = {
             "environment_version": 3,

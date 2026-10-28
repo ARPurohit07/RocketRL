@@ -4,7 +4,7 @@ RocketRL trains a Pythia-70M based PPO agent to land a rigid rocket on a circula
 
 The project was migrated from a 2D Box2D environment. The 3D policy applies one shared Pythia backbone to separate X and Y views of each observation. It has independent steering outputs and a shared engine decision. `checkpoints/baseline.zip` is the transferred 3D starting point. `checkpoints/improved.zip` is the single promoted PPO checkpoint. Training replaces that file only after a better result on fixed evaluation seeds and adequate compact-task retention. Git LFS tracks the checkpoints and the local Pythia weights.
 
-Training compares checkpoints on development seeds `1000000–1000063`. The 85% goal remains an acceptance target until a separate 200-seed full challenge evaluation verifies it.
+Training compares full-range checkpoints on 200 development seeds `1000000–1000199`, with smaller near and compact retention checks. The 85% goal remains an acceptance target until a separate 200-seed full challenge evaluation verifies it. A preliminary independent 200-seed run scored 150/200 (75%), so the goal has not yet been met.
 
 ## Environment
 
