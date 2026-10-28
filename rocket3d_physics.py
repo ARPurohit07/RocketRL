@@ -54,7 +54,7 @@ class Rocket3DPhysics:
     CORE = StartRange(1.0, (7.0, 11.0), 0.25, (-1.0, -0.3), 0.04, 0.025)
     FULL = StartRange(4.0, (6.0, 24.0), 1.2, (-2.8, 0.5), 0.18, 0.10)
 
-    def __init__(self, challenge=1.0):
+    def __init__(self, challenge=1.0, focus_axis=None):
         self.model = mujoco.MjModel.from_xml_string(SCENE)
         self.data = mujoco.MjData(self.model)
         self.body_id = self.model.body("rocket").id
@@ -63,6 +63,9 @@ class Rocket3DPhysics:
         self.foot_ids = tuple(self.model.geom(name).id for name in (
             "foot_fl", "foot_fr", "foot_bl", "foot_br"
         ))
+        if focus_axis not in (None, "y"):
+            raise ValueError("focus_axis must be None or 'y'")
+        self.focus_axis = focus_axis
         self.set_challenge(challenge)
         self.reset(seed=0)
 
@@ -87,12 +90,14 @@ class Rocket3DPhysics:
         if start is None:
             for _ in range(1000):
                 position = np.array([
-                    rng.uniform(-spec.xy, spec.xy),
+                    rng.uniform(-min(spec.xy, 1.0), min(spec.xy, 1.0))
+                    if self.focus_axis == "y" else rng.uniform(-spec.xy, spec.xy),
                     rng.uniform(-spec.xy, spec.xy),
                     rng.uniform(*spec.height),
                 ])
                 velocity = np.array([
-                    rng.uniform(-spec.drift, spec.drift),
+                    rng.uniform(-min(spec.drift, 0.3), min(spec.drift, 0.3))
+                    if self.focus_axis == "y" else rng.uniform(-spec.drift, spec.drift),
                     rng.uniform(-spec.drift, spec.drift),
                     rng.uniform(*spec.descent),
                 ])
@@ -102,6 +107,14 @@ class Rocket3DPhysics:
                     rng.uniform(-np.pi, np.pi),
                 ])
                 omega = rng.uniform(-spec.rotation, spec.rotation, size=3)
+                if self.focus_axis == "y":
+                    yaw = angles[2]
+                    yaw_rotation = np.array([
+                        [np.cos(yaw), -np.sin(yaw)],
+                        [np.sin(yaw), np.cos(yaw)],
+                    ])
+                    position[:2] = yaw_rotation @ position[:2]
+                    velocity[:2] = yaw_rotation @ velocity[:2]
                 clearance = position[2] - 1.5
                 brake_distance = max(0.0, -velocity[2]) ** 2 / (2 * 9.0)
                 fall_time = (

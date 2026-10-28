@@ -10,11 +10,16 @@ from rocket3d_physics import Rocket3DPhysics
 class Rocket3DEnv(gym.Env):
     metadata = {"render_modes": []}
 
-    def __init__(self, challenge=1.0, control_repeat=2, gamma=0.99):
+    def __init__(
+        self, challenge=1.0, control_repeat=2, gamma=0.99,
+        focus_axis=None,
+    ):
         super().__init__()
         if control_repeat < 1:
             raise ValueError("control_repeat must be positive")
-        self.physics = Rocket3DPhysics(challenge=challenge)
+        self.physics = Rocket3DPhysics(
+            challenge=challenge, focus_axis=focus_axis
+        )
         self.control_repeat = int(control_repeat)
         self.gamma = float(gamma)
         self.action_space = spaces.MultiDiscrete([2, 3, 3])
@@ -48,10 +53,10 @@ class Rocket3DEnv(gym.Env):
         braking = max(0.0, -velocity[2]) ** 2 / 20.0
         violation = max(0.0, braking + 0.4 - altitude)
         return -float(
-            1.6 * np.linalg.norm(projected_xy)
-            + 0.3 * np.linalg.norm(position[:2])
-            + 0.7 * np.linalg.norm(velocity[:2])
-            + 5.0 * np.linalg.norm(actual_up_xy - desired_up_xy)
+            3.0 * np.linalg.norm(projected_xy)
+            + 0.5 * np.linalg.norm(position[:2])
+            + 1.0 * np.linalg.norm(velocity[:2])
+            + 8.0 * np.linalg.norm(actual_up_xy - desired_up_xy)
             + 0.4 * np.linalg.norm(p.angular_velocity)
             + 1.0 * violation
         )

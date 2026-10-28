@@ -57,3 +57,35 @@ def test_observation_tracks_rocket_yaw_frame():
                    "velocity": [0.0, 1.0, -1.0],
                    "angles": [0.0, 0.0, np.pi / 2]})
     np.testing.assert_allclose(a.observe()[:9], b.observe()[:9], atol=1e-6)
+
+
+def test_3d_landing_requires_pad_contact():
+    start = {
+        "position": [0.0, 0.0, 1.5],
+        "velocity": [0.0, 0.0, -0.2],
+        "angles": [0.0, 0.0, 0.0],
+        "omega": [0.0, 0.0, 0.0],
+    }
+    on_pad, off_pad = Rocket3DPhysics(), Rocket3DPhysics()
+    on_pad.reset(start=start)
+    off_pad.reset(start={**start, "position": [4.0, 0.0, 1.5]})
+    for _ in range(120):
+        on_pad.step([0, 1, 1])
+        off_pad.step([0, 1, 1])
+        if on_pad.status != "flying" and off_pad.status != "flying":
+            break
+    assert on_pad.status == "landed"
+    assert off_pad.status == "crashed"
+    assert off_pad.reason == "off_pad"
+
+
+def test_y_focus_keeps_x_recoverable_and_varies_both_y_directions():
+    physics = Rocket3DPhysics(challenge=1.0, focus_axis="y")
+    lateral = []
+    for seed in range(64):
+        observation = physics.reset(seed=seed)
+        local_x, local_y = observation[:2] * 12.0
+        assert abs(local_x) <= 1.01
+        lateral.append(local_y)
+    assert min(lateral) < -2.0
+    assert max(lateral) > 2.0

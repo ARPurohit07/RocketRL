@@ -12,8 +12,8 @@ from rocket3d_env import Rocket3DEnv
 
 
 class Seeded3DEnv(Rocket3DEnv):
-    def __init__(self, seeds, worker, workers, challenge):
-        super().__init__(challenge=challenge)
+    def __init__(self, seeds, worker, workers, challenge, focus_axis=None):
+        super().__init__(challenge=challenge, focus_axis=focus_axis)
         self.seeds = seeds
         self.index = worker
         self.workers = workers
@@ -24,24 +24,31 @@ class Seeded3DEnv(Rocket3DEnv):
         return super().reset(seed=assigned, options=options)
 
 
-def evaluate(model, seeds, challenge=1.0, workers=8, deterministic=True):
+def evaluate(
+    model, seeds, challenge=1.0, workers=8, deterministic=True,
+    focus_axis=None,
+):
     seeds = tuple(seeds)
     if not seeds:
         raise ValueError("At least one seed is required")
     count = min(workers, len(seeds))
     env = DummyVecEnv([
         (lambda i=i: FrameStackObservation(
-            Seeded3DEnv(seeds, i, count, challenge), 8
+            Seeded3DEnv(seeds, i, count, challenge, focus_axis=focus_axis), 8
         )) for i in range(count)
     ])
     quotas = [len(range(i, len(seeds), count)) for i in range(count)]
     completed = [0] * count
     reward_totals = np.zeros(count)
     records = []
+    actions_taken = Counter()
     try:
         obs = env.reset()
         while any(done < quota for done, quota in zip(completed, quotas)):
             actions, _ = model.predict(obs, deterministic=deterministic)
+            for i, action in enumerate(actions):
+                if completed[i] < quotas[i]:
+                    actions_taken[tuple(map(int, action))] += 1
             obs, rewards, dones, infos = env.step(actions)
             reward_totals += rewards
             for i, done in enumerate(dones):
@@ -74,6 +81,10 @@ def evaluate(model, seeds, challenge=1.0, workers=8, deterministic=True):
         "mean_reward": np.mean([row["reward"] for row in records]).item(),
         "failures": dict(failures),
         "by_height": height_bands,
+        "action_counts": {
+            ",".join(map(str, action)): count
+            for action, count in sorted(actions_taken.items())
+        },
     }
 
 
@@ -85,11 +96,13 @@ def main():
     parser.add_argument("--challenge", type=float, default=1.0)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--stochastic", action="store_true")
+    parser.add_argument("--focus-axis", choices=("y",))
     args = parser.parse_args()
     model = PPO.load(args.checkpoint, device=args.device)
     stats = evaluate(
         model, range(args.seed_start, args.seed_start + args.episodes),
         challenge=args.challenge, deterministic=not args.stochastic,
+        focus_axis=args.focus_axis,
     )
     print(stats, flush=True)
 
