@@ -8,14 +8,14 @@ Training compares full-range checkpoints on 200 development seeds `1000000–100
 
 ## Verified result
 
-Deterministic evaluation at full challenge on previously unused seeds `4000000–4000199`:
+Deterministic full-challenge comparison on seeds `5000000–5000399`:
 
-| Checkpoint | Landings | Success rate |
-| --- | ---: | ---: |
-| Baseline | 56/200 | 28% |
-| Improved | 174/200 | **87%** |
+| Checkpoint | Landings | Success rate | Off-pad failures |
+| --- | ---: | ---: | ---: |
+| Previous improved (`e23688f`) | 338/400 | 84.5% | 42 |
+| Current improved | 345/400 | **86.25%** | 34 |
 
-The improved policy had 18 off-pad contacts, five hard impacts, and three hull contacts. Success was 68% at 6–10 m, 88% at 10–16 m, and 94% at 16–24 m. The same policy scored 181/200 (90.5%) on the separate development set. The 85% acceptance goal is met on the fresh evaluation.
+Both checkpoints landed 73/97 starts at 6–10 m on this set. The current checkpoint improved overall and reduced off-pad failures, but low-height success remains an open target. It was selected at training step 16,384 using separate development seeds, scoring 184/200 full challenge and 83/96 on the focused 6–10 m offset benchmark. The original 3D baseline scored 56/200 on seeds `4000000–4000199`; the previous improved checkpoint scored 174/200 on those seeds.
 
 ## Environment
 
@@ -33,15 +33,16 @@ Use the project virtual environment. Install dependencies listed in `requirement
 .\.venv\Scripts\python.exe run_tests.py
 .\.venv\Scripts\python.exe rocket3d_eval.py --checkpoint checkpoints/baseline.zip --episodes 200 --seed-start 4000000
 .\.venv\Scripts\python.exe rocket3d_eval.py --checkpoint checkpoints/improved.zip --episodes 200 --seed-start 4000000
+.\.venv\Scripts\python.exe rocket3d_eval.py --checkpoint checkpoints/improved.zip --episodes 200 --seed-start 6000000 --height-ceiling 10 --min-start-radius 2
 .\.venv\Scripts\python.exe play_rocket.py --checkpoint checkpoints/improved.zip
 ```
 
 The interactive viewer shows the rocket, engine flame, and yellow-bordered landing target in daylight. MuJoCo's control panels are hidden to leave more room for the flight. For terminal only playback, add `--headless`. To reproduce an episode, add `--seed N`.
 
-Continue PPO training from the current improved checkpoint:
+Continue PPO training from the current improved checkpoint with more low, offset starts:
 
 ```powershell
-.\.venv\Scripts\python.exe train3d.py --steps 262144 --eval-interval 16384 --challenge-start 0.8 --low-start-radius 1.75 --mid-start-radius 2.75 --train-head-only --learning-rate 0.00001 --entropy-coef 0.001 --gamma 0.99 --gae-lambda 0.95 --seed 20261122
+.\.venv\Scripts\python.exe train3d.py --steps 65536 --eval-interval 16384 --challenge-start 0.9 --low-height-ceiling 10 --low-start-radius 1.75 --low-target-radius 2.75 --mid-height-floor 6 --mid-height-ceiling 10 --mid-start-radius 3.0 --mid-target-radius 4.0 --train-head-only --prioritize-low-height --minimum-full-success 0.85 --learning-rate 0.00001 --entropy-coef 0.001 --gamma 0.99 --gae-lambda 0.95 --seed 20261203
 ```
 
 The transferred action logits were calibrated once with `--engine-logit-scale 0.05 --steering-logit-scale 0.5` so PPO could sample early thrust and steering. The improved checkpoint already contains that calibration; continuation uses the default scales. Training settings are stored in the single metrics log.

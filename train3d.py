@@ -22,6 +22,7 @@ METRICS = Path("runs/3d_metrics.jsonl")
 FULL_EVAL_SEEDS = tuple(range(1_000_000, 1_000_200))
 NEAR_EVAL_SEEDS = FULL_EVAL_SEEDS[:64]
 CORE_EVAL_SEEDS = FULL_EVAL_SEEDS[:32]
+LOW_EVAL_SEEDS = tuple(range(1_100_000, 1_100_096))
 
 
 def make_env(
@@ -43,7 +44,8 @@ class TrainingMonitor(BaseCallback):
         focus_axis=None, source=None, compare_existing=False,
         low_radius_start=1.0, low_radius_target=2.5,
         mid_radius_start=2.0, mid_radius_target=3.5,
-        run_config=None,
+        run_config=None, prioritize_low_height=False,
+        minimum_full_success=0.85,
     ):
         super().__init__(verbose=0)
         self.total_steps = int(total_steps)
@@ -66,13 +68,16 @@ class TrainingMonitor(BaseCallback):
         self.low_radius = low_radius_start
         self.mid_radius = mid_radius_start
         self.run_config = run_config or {}
+        self.prioritize_low_height = prioritize_low_height
+        self.minimum_full_success = minimum_full_success
 
     def _on_training_start(self):
         full = evaluate(self.model, FULL_EVAL_SEEDS, challenge=1.0)
         near = evaluate(self.model, NEAR_EVAL_SEEDS, challenge=0.25)
         core = evaluate(self.model, CORE_EVAL_SEEDS, challenge=0.0)
         focus = self._focus_eval(self.model)
-        starting_score = self._score(full, near, core, focus)
+        low = self._low_eval(self.model)
+        starting_score = self._score(full, near, core, focus, low)
         prior_score = starting_score if IMPROVED.exists() and not self.compare_existing else None
         print(
             f"Starting 3D checkpoint: full={full['success_rate']:.1%} "
@@ -81,17 +86,25 @@ class TrainingMonitor(BaseCallback):
         )
         if focus is not None:
             print(f"Starting focused benchmark: {focus}", flush=True)
+        if low is not None:
+            print(
+                f"Starting 6-10m offset benchmark: {low['landings']}/"
+                f"{low['episodes']}", flush=True,
+            )
         if IMPROVED.exists() and self.compare_existing:
             previous = PPO.load(str(IMPROVED), device="cpu")
             prior_full = evaluate(previous, FULL_EVAL_SEEDS, challenge=1.0)
             prior_near = evaluate(previous, NEAR_EVAL_SEEDS, challenge=0.25)
             prior_core = evaluate(previous, CORE_EVAL_SEEDS, challenge=0.0)
             prior_focus = self._focus_eval(previous)
-            prior_score = self._score(prior_full, prior_near, prior_core, prior_focus)
+            prior_low = self._low_eval(previous)
+            prior_score = self._score(
+                prior_full, prior_near, prior_core, prior_focus, prior_low,
+            )
             print(f"Protected improved checkpoint: full={prior_full['success_rate']:.1%} near={prior_near['success_rate']:.1%} core={prior_core['success_rate']:.1%}", flush=True)
             del previous
         self.best_score = max(starting_score, prior_score) if prior_score is not None else starting_score
-        if core["success_rate"] >= self.core_floor and (
+        if self._passes_floor(full, core) and (
             prior_score is None or starting_score > prior_score
         ):
             self.model.save(str(IMPROVED))
@@ -105,10 +118,33 @@ class TrainingMonitor(BaseCallback):
             focus_axis=self.focus_axis,
         )
 
-    def _score(self, full, near, core, focus=None):
+    def _low_eval(self, model):
+        if not self.prioritize_low_height:
+            return None
+        return evaluate(
+            model, LOW_EVAL_SEEDS, challenge=1.0,
+            height_ceiling=10.0, min_start_radius=2.0,
+        )
+
+    def _passes_floor(self, full, core):
+        return (
+            core["success_rate"] >= self.core_floor
+            and (
+                not self.prioritize_low_height
+                or full["success_rate"] >= self.minimum_full_success
+            )
+        )
+
+    def _score(self, full, near, core, focus=None, low=None):
         if focus is not None:
             return (
                 focus["success_rate"], full["success_rate"],
+                near["success_rate"], core["success_rate"],
+                full["mean_reward"],
+            )
+        if low is not None:
+            return (
+                low["success_rate"], full["success_rate"],
                 near["success_rate"], core["success_rate"],
                 full["mean_reward"],
             )
@@ -181,26 +217,29 @@ class TrainingMonitor(BaseCallback):
         near = evaluate(self.model, NEAR_EVAL_SEEDS, challenge=0.25)
         core = evaluate(self.model, CORE_EVAL_SEEDS, challenge=0.0)
         focus = self._focus_eval(self.model)
+        low = self._low_eval(self.model)
         record = {
             "environment_version": 3,
             "step": self.num_timesteps, "challenge": self.challenge,
             "low_radius": self.low_radius, "mid_radius": self.mid_radius,
             "training": self.run_config,
             "full": full, "near": near, "core": core, "focus": focus,
+            "low_offset": low,
         }
         METRICS.parent.mkdir(parents=True, exist_ok=True)
         with METRICS.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record) + "\n")
         focus_text = "" if focus is None else f" focus={focus['success_rate']:.1%}"
+        low_text = "" if low is None else f" low_offset={low['success_rate']:.1%}"
         print(
             f"3D held-out step={self.num_timesteps}: "
             f"full={full['success_rate']:.1%} "
             f"near={near['success_rate']:.1%} "
             f"core={core['success_rate']:.1%} "
-            f"failures={full['failures']}{focus_text}", flush=True,
+            f"failures={full['failures']}{focus_text}{low_text}", flush=True,
         )
-        score = self._score(full, near, core, focus)
-        if core["success_rate"] >= self.core_floor and score > self.best_score:
+        score = self._score(full, near, core, focus, low)
+        if self._passes_floor(full, core) and score > self.best_score:
             self.model.save(str(IMPROVED))
             self.best_score = score
             print(f"Updated {IMPROVED} at {self.num_timesteps} steps", flush=True)
@@ -223,6 +262,8 @@ def main():
     parser.add_argument("--position-scale", type=float, default=1.0)
     parser.add_argument("--train-lora", action="store_true")
     parser.add_argument("--train-head-only", action="store_true")
+    parser.add_argument("--prioritize-low-height", action="store_true")
+    parser.add_argument("--minimum-full-success", type=float, default=0.85)
     parser.add_argument("--focus-axis", choices=("y",))
     parser.add_argument("--low-height-ceiling", type=float, default=10.0)
     parser.add_argument("--low-start-radius", type=float, default=1.0)
@@ -242,6 +283,8 @@ def main():
         raise ValueError("Entropy coefficient must be nonnegative and scales positive")
     if not 0 < args.gamma < 1 or not 0 < args.gae_lambda <= 1:
         raise ValueError("Gamma must be in (0, 1); GAE lambda must be in (0, 1]")
+    if not 0 <= args.minimum_full_success <= 1:
+        raise ValueError("Minimum full success must be in [0, 1]")
     if args.train_lora and args.train_head_only:
         raise ValueError("Choose LoRA training or head-only training")
     if not 0 <= args.low_start_radius <= args.low_target_radius:
@@ -334,6 +377,8 @@ def main():
             low_radius_target=args.low_target_radius,
             mid_radius_start=args.mid_start_radius,
             mid_radius_target=args.mid_target_radius,
+            prioritize_low_height=args.prioritize_low_height,
+            minimum_full_success=args.minimum_full_success,
             run_config={**vars(args), "source_checkpoint": str(source)},
         )
         model.learn(

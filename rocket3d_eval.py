@@ -12,8 +12,15 @@ from rocket3d_env import Rocket3DEnv
 
 
 class Seeded3DEnv(Rocket3DEnv):
-    def __init__(self, seeds, worker, workers, challenge, focus_axis=None):
-        super().__init__(challenge=challenge, focus_axis=focus_axis)
+    def __init__(
+        self, seeds, worker, workers, challenge, focus_axis=None,
+        height_floor=None, height_ceiling=None, min_start_radius=0.0,
+    ):
+        super().__init__(
+            challenge=challenge, focus_axis=focus_axis,
+            height_floor=height_floor, height_ceiling=height_ceiling,
+            min_start_radius=min_start_radius,
+        )
         self.seeds = seeds
         self.index = worker
         self.workers = workers
@@ -26,7 +33,8 @@ class Seeded3DEnv(Rocket3DEnv):
 
 def evaluate(
     model, seeds, challenge=1.0, workers=8, deterministic=True,
-    focus_axis=None,
+    focus_axis=None, height_floor=None, height_ceiling=None,
+    min_start_radius=0.0,
 ):
     seeds = tuple(seeds)
     if not seeds:
@@ -34,7 +42,11 @@ def evaluate(
     count = min(workers, len(seeds))
     env = DummyVecEnv([
         (lambda i=i: FrameStackObservation(
-            Seeded3DEnv(seeds, i, count, challenge, focus_axis=focus_axis), 8
+            Seeded3DEnv(
+                seeds, i, count, challenge, focus_axis=focus_axis,
+                height_floor=height_floor, height_ceiling=height_ceiling,
+                min_start_radius=min_start_radius,
+            ), 8
         )) for i in range(count)
     ])
     quotas = [len(range(i, len(seeds), count)) for i in range(count)]
@@ -122,12 +134,17 @@ def main():
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--stochastic", action="store_true")
     parser.add_argument("--focus-axis", choices=("y",))
+    parser.add_argument("--height-floor", type=float)
+    parser.add_argument("--height-ceiling", type=float)
+    parser.add_argument("--min-start-radius", type=float, default=0.0)
     args = parser.parse_args()
     model = PPO.load(args.checkpoint, device=args.device)
     stats = evaluate(
         model, range(args.seed_start, args.seed_start + args.episodes),
         challenge=args.challenge, deterministic=not args.stochastic,
         focus_axis=args.focus_axis,
+        height_floor=args.height_floor, height_ceiling=args.height_ceiling,
+        min_start_radius=args.min_start_radius,
     )
     print(stats, flush=True)
 
