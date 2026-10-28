@@ -1,5 +1,7 @@
 import numpy as np
+import torch
 
+from pythia_controller import PythiaDualAxis
 from rocket3d_env import Rocket3DEnv
 from rocket3d_physics import Rocket3DPhysics
 
@@ -89,3 +91,18 @@ def test_y_focus_keeps_x_recoverable_and_varies_both_y_directions():
         lateral.append(local_y)
     assert min(lateral) < -2.0
     assert max(lateral) > 2.0
+
+
+def test_dual_axis_views_separate_lateral_state():
+    state = torch.zeros((1, 8, 18))
+    state[..., 0] = 0.4
+    state[..., 1] = -0.2
+    state[..., 3] = 0.5
+    state[..., 4] = -0.3
+    state[..., 6] = -0.1
+    state[..., 7] = 0.2
+    x = PythiaDualAxis._axis_view(state, 0)
+    y = PythiaDualAxis._axis_view(state, 1)
+    assert x.shape == y.shape == (1, 8, 9)
+    np.testing.assert_allclose(x[0, -1, [0, 2, 4]].numpy(), [0.32, 0.4, 0.1])
+    np.testing.assert_allclose(y[0, -1, [0, 2, 4]].numpy(), [-0.16, -0.24, -0.2])

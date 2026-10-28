@@ -51,6 +51,7 @@ class Rocket3DPhysics:
     FUEL_CAPACITY = 12.0
     MAX_STEPS = 900
     SETTLE_STEPS = 12
+    MAX_CONTACT_STEPS = 150
     CORE = StartRange(1.0, (7.0, 11.0), 0.25, (-1.0, -0.3), 0.04, 0.025)
     FULL = StartRange(4.0, (6.0, 24.0), 1.2, (-2.8, 0.5), 0.18, 0.10)
 
@@ -249,7 +250,7 @@ class Rocket3DPhysics:
             self.contact_steps = self.contact_steps + 1 if touching else 0
             if self.stable_steps >= self.SETTLE_STEPS:
                 self.status = "landed"
-            elif self.contact_steps >= 60:
+            elif self.contact_steps >= self.MAX_CONTACT_STEPS:
                 self.status, self.reason = "crashed", "unsettled_contact"
             elif np.any(np.abs(position[:2]) > 12.0):
                 self.status, self.reason = "out_of_bounds", "lateral_boundary"

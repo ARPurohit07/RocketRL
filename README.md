@@ -2,7 +2,9 @@
 
 RocketRL trains a Pythia-70M based PPO agent to land a rigid rocket on a circular pad in MuJoCo. The rocket moves and rotates in three dimensions. The policy controls the main engine and two independent steering axes. It learns from environment rewards; no teacher controller or action labels are used.
 
-The project is being migrated from a 2D Box2D environment. The 3D policy retains the Pythia backbone, but its input and action heads have been adapted to the 3D observation and control spaces. `checkpoints/baseline.zip` is the transferred 3D starting point. `checkpoints/improved.zip` is the single promoted PPO checkpoint. Training replaces that file only after a better result on fixed evaluation seeds and adequate compact-task retention. Git LFS tracks the checkpoints and the local Pythia weights.
+The project was migrated from a 2D Box2D environment. The 3D policy applies one shared Pythia backbone to separate X and Y views of each observation. It has independent steering outputs and a shared engine decision. `checkpoints/baseline.zip` is the transferred 3D starting point. `checkpoints/improved.zip` is the single promoted PPO checkpoint. Training replaces that file only after a better result on fixed evaluation seeds and adequate compact-task retention. Git LFS tracks the checkpoints and the local Pythia weights.
+
+The dual-axis baseline landed 6/64 full challenge starts and 30/32 compact starts on development seeds `1000000–1000063`. The 85% goal remains an acceptance target until a separate 200-seed full challenge evaluation verifies it.
 
 ## Environment
 
@@ -33,6 +35,10 @@ Continue PPO training from the current improved checkpoint:
 
 Training gradually widens a single continuous randomized distribution based on recent episode success. `runs/3d_metrics.jsonl` stores evaluation history. The acceptance goal is at least 85% landings over 200 previously unused full challenge seeds; the score is not claimed until that run passes.
 
+For targeted training on lateral control, `--focus-axis y --challenge-start 0.4` draws continuously randomized starts with larger Y than X error. This provides no target actions; the same full challenge evaluator determines whether the resulting checkpoint helps.
+
 ## Source control
 
 The Git repository tracks source, tests, baseline and improved checkpoints, and the Pythia weights with Git LFS. The local virtual environment, logs, and metrics are ignored. No remote is configured.
+
+The previous 2D source is preserved in `legacy2d/` for historical reference. Active 3D commands are at the repository root.

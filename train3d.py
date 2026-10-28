@@ -12,7 +12,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
 
-from pythia_controller import PythiaController
+from pythia_controller import PythiaController, PythiaDualAxis
 from rocket3d_env import Rocket3DEnv
 from rocket3d_eval import evaluate
 
@@ -95,6 +95,73 @@ def initialize_baseline(env, source_path, seed, device):
     print(f"Created 3D baseline: {BASELINE}", flush=True)
 
 
+def initialize_dual_baseline(env, seed):
+    """Factorize a transferred 3D policy into two shared Pythia axis views."""
+    source = PPO.load(str(BASELINE), device="cpu")
+    target = PPO(
+        "MlpPolicy", env,
+        policy_kwargs={
+            "features_extractor_class": PythiaDualAxis,
+            "net_arch": {"pi": [128], "vf": [128]},
+        },
+        learning_rate=5e-6, n_steps=256, batch_size=256,
+        n_epochs=4, gamma=0.99, gae_lambda=0.95,
+        clip_range=0.05, ent_coef=0.001, vf_coef=0.2,
+        device="cpu", seed=seed, verbose=0,
+    )
+    old_state = source.policy.state_dict()
+    state = target.policy.state_dict()
+    with torch.no_grad():
+        for name, current in state.items():
+            old = old_state.get(name)
+            if old is not None and old.shape == current.shape:
+                state[name] = old.clone()
+        for name in (
+            "features_extractor.input_adapter.0.weight",
+            "features_extractor.residual.0.weight",
+        ):
+            old = old_state[name]
+            mapped = torch.zeros_like(state[name])
+            mapped[:, 0] = old[:, 0]
+            mapped[:, 1] = old[:, 2]
+            mapped[:, 2] = old[:, 3]
+            mapped[:, 3] = old[:, 5]
+            mapped[:, 4] = -old[:, 6]
+            mapped[:, 5] = -old[:, 11] * (5.0 / 3.0)
+            mapped[:, 6] = old[:, 13] + old[:, 15]
+            mapped[:, 7] = old[:, 14] + old[:, 16]
+            mapped[:, 8] = old[:, 17]
+            state[name] = mapped
+        for path in ("policy_net", "value_net"):
+            weight_name = f"mlp_extractor.{path}.0.weight"
+            bias_name = f"mlp_extractor.{path}.0.bias"
+            old_weight = old_state[weight_name]
+            new_weight = torch.zeros_like(state[weight_name])
+            new_weight[:64, :128] = old_weight
+            new_weight[64:, 128:] = old_weight
+            state[weight_name] = new_weight
+            state[bias_name] = old_state[bias_name].repeat(2)
+        old_action = old_state["action_net.weight"]
+        action = torch.zeros_like(state["action_net.weight"])
+        action[0, :64] = old_action[0] * 0.5
+        action[0, 64:] = old_action[0] * 0.5
+        action[1, :64] = old_action[1] * 0.5
+        action[1, 64:] = old_action[1] * 0.5
+        action[2:5, :64] = old_action[2:5]
+        action[5:8, 64:] = old_action[2:5]
+        state["action_net.weight"] = action
+        old_bias = old_state["action_net.bias"]
+        state["action_net.bias"] = torch.cat((old_bias[:5], old_bias[2:5]))
+        state["value_net.weight"] = old_state["value_net.weight"].repeat(1, 2) * 0.5
+        target.policy.load_state_dict(state)
+    full = evaluate(target, EVAL_SEEDS, challenge=1.0)
+    near = evaluate(target, EVAL_SEEDS, challenge=0.25)
+    core = evaluate(target, EVAL_SEEDS[:32], challenge=0.0)
+    print(f"Dual-axis baseline: full={full} near={near} core={core}", flush=True)
+    target.save(str(BASELINE))
+    print(f"Saved dual-axis baseline to {BASELINE}", flush=True)
+
+
 class TrainingMonitor(BaseCallback):
     def __init__(
         self, total_steps, start_challenge, eval_interval, core_floor=0.75,
@@ -153,10 +220,12 @@ class TrainingMonitor(BaseCallback):
         )
 
     def _on_step(self):
-        for done, info in zip(self.locals.get("dones", ()), self.locals.get("infos", ())):
-            if done:
+        for worker, (done, info) in enumerate(zip(
+            self.locals.get("dones", ()), self.locals.get("infos", ())
+        )):
+            if done and worker < 4:
                 self.outcomes.append(int(info.get("is_success", False)))
-        if len(self.outcomes) >= 128:
+        if len(self.outcomes) >= 64:
             rate = float(np.mean(self.outcomes))
             target = 0.40 if self.focus_axis else 0.58
             floor = 0.20 if self.focus_axis else 0.40
@@ -166,8 +235,12 @@ class TrainingMonitor(BaseCallback):
                 self.challenge = max(
                     self.start_challenge, self.challenge - 0.0125
                 )
+            self.challenge = max(
+                self.challenge,
+                min(1.0, self.start_challenge + self.num_timesteps / self.total_steps),
+            )
             self.outcomes.clear()
-            for wrapped in self.training_env.envs:
+            for wrapped in self.training_env.envs[:4]:
                 wrapped.unwrapped.set_challenge(self.challenge)
             print(f"Training step={self.num_timesteps} recent_success={rate:.1%} challenge={self.challenge:.3f}", flush=True)
         if self.num_timesteps % self.eval_interval:
@@ -198,12 +271,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--initialize-from", default="rocket_pythia_phase2_best.zip")
     parser.add_argument("--init-only", action="store_true")
+    parser.add_argument("--dual-init", action="store_true")
     parser.add_argument("--steps", type=int, default=262_144)
     parser.add_argument("--eval-interval", type=int, default=16_384)
     parser.add_argument("--challenge-start", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=20261028)
     parser.add_argument("--restart-from-baseline", action="store_true")
-    parser.add_argument("--logit-scale", type=float, default=1.5)
+    parser.add_argument("--logit-scale", type=float, default=1.0)
+    parser.add_argument("--learning-rate", type=float, default=1e-5)
     parser.add_argument("--decouple-axis-heads", action="store_true")
     parser.add_argument("--y-neutral-bias", type=float, default=3.0)
     parser.add_argument("--probe-only", action="store_true")
@@ -215,10 +290,15 @@ def main():
         raise ValueError("Steps and evaluation interval must be positive")
     torch.set_num_threads(2)
     env = DummyVecEnv([
-        make_env(args.challenge_start, focus_axis=args.focus_axis)
-        for _ in range(8)
+        make_env(challenge, focus_axis=args.focus_axis)
+        for challenge in ([args.challenge_start] * 4 + [0.5] * 2 + [1.0] * 2)
     ])
     try:
+        if args.dual_init:
+            if not BASELINE.exists():
+                raise FileNotFoundError(BASELINE)
+            initialize_dual_baseline(env, args.seed)
+            return
         initialize_baseline(env, args.initialize_from, args.seed, args.device)
         if args.init_only:
             return
@@ -285,13 +365,13 @@ def main():
             for parameter in module.parameters():
                 parameter.requires_grad = True
         model.policy.optimizer = model.policy.optimizer_class(
-            model.policy.parameters(), lr=5e-6,
+            model.policy.parameters(), lr=args.learning_rate,
             **model.policy.optimizer_kwargs,
         )
-        model.learning_rate = 5e-6
-        model.lr_schedule = lambda _: 5e-6
+        model.learning_rate = args.learning_rate
+        model.lr_schedule = lambda _: args.learning_rate
         model.clip_range = lambda _: 0.05
-        model.ent_coef = 0.001
+        model.ent_coef = 0.005
         model.n_epochs = 4
         model.batch_size = 256
         callback = TrainingMonitor(
