@@ -159,6 +159,7 @@ def main():
     parser.add_argument("--gae-lambda", type=float, default=0.98)
     parser.add_argument("--entropy-coef", type=float, default=0.005)
     parser.add_argument("--action-logit-scale", type=float, default=1.0)
+    parser.add_argument("--train-lora", action="store_true")
     parser.add_argument("--focus-axis", choices=("y",))
     parser.add_argument("--low-height-ceiling", type=float, default=10.0)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -204,6 +205,15 @@ def main():
         for module in modules:
             for parameter in module.parameters():
                 parameter.requires_grad = True
+        if args.train_lora:
+            lora_count = 0
+            for name, parameter in model.policy.features_extractor.backbone.named_parameters():
+                if "lora_" in name:
+                    parameter.requires_grad = True
+                    lora_count += parameter.numel()
+            if lora_count == 0:
+                raise RuntimeError("No Pythia LoRA parameters found to train")
+            print(f"Training {lora_count:,} Pythia LoRA parameters with PPO", flush=True)
         model.policy.optimizer = model.policy.optimizer_class(
             model.policy.parameters(), lr=args.learning_rate,
             **model.policy.optimizer_kwargs,
