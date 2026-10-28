@@ -4,7 +4,18 @@ RocketRL trains a Pythia-70M based PPO agent to land a rigid rocket on a circula
 
 The project was migrated from a 2D Box2D environment. The 3D policy applies one shared Pythia backbone to separate X and Y views of each observation. It has independent steering outputs and a shared engine decision. `checkpoints/baseline.zip` is the transferred 3D starting point. `checkpoints/improved.zip` is the single promoted PPO checkpoint. Training replaces that file only after a better result on fixed evaluation seeds and adequate compact-task retention. Git LFS tracks the checkpoints and the local Pythia weights.
 
-Training compares full-range checkpoints on 200 development seeds `1000000–1000199`, with smaller near and compact retention checks. The 85% goal remains an acceptance target until a separate 200-seed full challenge evaluation verifies it. A preliminary independent 200-seed run scored 150/200 (75%), so the goal has not yet been met.
+Training compares full-range checkpoints on 200 development seeds `1000000–1000199`, with smaller near and compact retention checks.
+
+## Verified result
+
+Deterministic evaluation at full challenge on previously unused seeds `4000000–4000199`:
+
+| Checkpoint | Landings | Success rate |
+| --- | ---: | ---: |
+| Baseline | 56/200 | 28% |
+| Improved | 174/200 | **87%** |
+
+The improved policy had 18 off-pad contacts, five hard impacts, and three hull contacts. Success was 68% at 6–10 m, 88% at 10–16 m, and 94% at 16–24 m. The same policy scored 181/200 (90.5%) on the separate development set. The 85% acceptance goal is met on the fresh evaluation.
 
 ## Environment
 
@@ -20,8 +31,8 @@ Use the project virtual environment. Install dependencies listed in `requirement
 
 ```powershell
 .\.venv\Scripts\python.exe run_tests.py
-.\.venv\Scripts\python.exe rocket3d_eval.py --checkpoint checkpoints/baseline.zip --episodes 200 --seed-start 2000000
-.\.venv\Scripts\python.exe rocket3d_eval.py --checkpoint checkpoints/improved.zip --episodes 200 --seed-start 2000000
+.\.venv\Scripts\python.exe rocket3d_eval.py --checkpoint checkpoints/baseline.zip --episodes 200 --seed-start 4000000
+.\.venv\Scripts\python.exe rocket3d_eval.py --checkpoint checkpoints/improved.zip --episodes 200 --seed-start 4000000
 .\.venv\Scripts\python.exe play_rocket.py --checkpoint checkpoints/improved.zip
 ```
 
@@ -30,12 +41,12 @@ For terminal only playback, add `--headless`. To reproduce an episode, add `--se
 Continue PPO training from the current improved checkpoint:
 
 ```powershell
-.\.venv\Scripts\python.exe train3d.py --steps 262144 --eval-interval 16384 --seed 20261028
+.\.venv\Scripts\python.exe train3d.py --steps 262144 --eval-interval 16384 --challenge-start 0.8 --low-start-radius 1.75 --mid-start-radius 2.75 --train-head-only --learning-rate 0.00001 --entropy-coef 0.001 --gamma 0.99 --gae-lambda 0.95 --seed 20261122
 ```
 
-For hard starts, `--engine-logit-scale 0.05 --steering-logit-scale 0.5` softens the transferred action logits before PPO rollouts so early engine and steering actions can be sampled. The deterministic action choice is unchanged at initialization. These settings affect the current training run and are stored in the single metrics log.
+The transferred action logits were calibrated once with `--engine-logit-scale 0.05 --steering-logit-scale 0.5` so PPO could sample early thrust and steering. The improved checkpoint already contains that calibration; continuation uses the default scales. Training settings are stored in the single metrics log.
 
-Training gradually widens a continuous randomized distribution based on recent episode success. Two workers emphasize 6–10 m starts and ramp their minimum offset from 1 to 2.5 m. Two workers emphasize 10–16 m starts and ramp minimum offset from 2 to 3.5 m. The full-range evaluation distribution stays unchanged. The reward includes terminal landing success, motion shaping, and a clearance cost when the projected horizontal position still misses the pad. No target actions or teacher controller are used. `runs/3d_metrics.jsonl` stores evaluation history. The evaluator reports success by start height and distance. The acceptance goal is at least 85% landings over 200 previously unused full challenge seeds; the score is not claimed until that run passes.
+Training gradually widens a continuous randomized distribution based on recent episode success. Two workers emphasize 6–10 m starts and ramp their minimum offset toward 2.5 m. Two workers emphasize 10–16 m starts and ramp minimum offset toward 3.5 m. The full-range evaluation distribution stays unchanged. The reward includes terminal landing success, motion shaping, and a clearance cost when the projected horizontal position still misses the pad. No target actions or teacher controller are used. `runs/3d_metrics.jsonl` stores evaluation history. The evaluator reports success by start height and distance.
 
 For targeted training on lateral control, `--focus-axis y --challenge-start 0.4` draws continuously randomized starts with larger Y than X error. This provides no target actions; the same full challenge evaluator determines whether the resulting checkpoint helps.
 
