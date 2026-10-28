@@ -41,6 +41,7 @@ class TrainingMonitor(BaseCallback):
         focus_axis=None, source=None, compare_existing=False,
         low_radius_start=1.0, low_radius_target=2.5,
         mid_radius_start=2.0, mid_radius_target=3.5,
+        run_config=None,
     ):
         super().__init__(verbose=0)
         self.total_steps = int(total_steps)
@@ -62,6 +63,7 @@ class TrainingMonitor(BaseCallback):
         self.mid_radius_target = mid_radius_target
         self.low_radius = low_radius_start
         self.mid_radius = mid_radius_start
+        self.run_config = run_config or {}
 
     def _on_training_start(self):
         full = evaluate(self.model, EVAL_SEEDS, challenge=1.0)
@@ -180,6 +182,7 @@ class TrainingMonitor(BaseCallback):
             "environment_version": 3,
             "step": self.num_timesteps, "challenge": self.challenge,
             "low_radius": self.low_radius, "mid_radius": self.mid_radius,
+            "training": self.run_config,
             "full": full, "near": near, "core": core, "focus": focus,
         }
         METRICS.parent.mkdir(parents=True, exist_ok=True)
@@ -212,7 +215,8 @@ def main():
     parser.add_argument("--gamma", type=float, default=0.995)
     parser.add_argument("--gae-lambda", type=float, default=0.98)
     parser.add_argument("--entropy-coef", type=float, default=0.005)
-    parser.add_argument("--action-logit-scale", type=float, default=1.0)
+    parser.add_argument("--engine-logit-scale", type=float, default=1.0)
+    parser.add_argument("--steering-logit-scale", type=float, default=1.0)
     parser.add_argument("--position-scale", type=float, default=1.0)
     parser.add_argument("--train-lora", action="store_true")
     parser.add_argument("--train-head-only", action="store_true")
@@ -228,7 +232,10 @@ def main():
     args = parser.parse_args()
     if args.steps <= 0 or args.eval_interval <= 0 or args.learning_rate <= 0:
         raise ValueError("Steps, evaluation interval and learning rate must be positive")
-    if args.entropy_coef < 0 or args.action_logit_scale <= 0 or args.position_scale <= 0:
+    if (
+        args.entropy_coef < 0 or args.engine_logit_scale <= 0
+        or args.steering_logit_scale <= 0 or args.position_scale <= 0
+    ):
         raise ValueError("Entropy coefficient must be nonnegative and scales positive")
     if not 0 < args.gamma < 1 or not 0 < args.gae_lambda <= 1:
         raise ValueError("Gamma must be in (0, 1); GAE lambda must be in (0, 1]")
@@ -262,10 +269,12 @@ def main():
         )
         model = PPO.load(str(source), env=env, device=args.device)
         model.set_random_seed(args.seed)
-        if args.action_logit_scale != 1.0:
+        if args.engine_logit_scale != 1.0 or args.steering_logit_scale != 1.0:
             with torch.no_grad():
-                model.policy.action_net.weight.mul_(args.action_logit_scale)
-                model.policy.action_net.bias.mul_(args.action_logit_scale)
+                model.policy.action_net.weight[:2].mul_(args.engine_logit_scale)
+                model.policy.action_net.bias[:2].mul_(args.engine_logit_scale)
+                model.policy.action_net.weight[2:8].mul_(args.steering_logit_scale)
+                model.policy.action_net.bias[2:8].mul_(args.steering_logit_scale)
         if args.position_scale != 1.0:
             with torch.no_grad():
                 extractor = model.policy.features_extractor
@@ -322,6 +331,7 @@ def main():
             low_radius_target=args.low_target_radius,
             mid_radius_start=args.mid_start_radius,
             mid_radius_target=args.mid_target_radius,
+            run_config={**vars(args), "source_checkpoint": str(source)},
         )
         model.learn(
             total_timesteps=args.steps,

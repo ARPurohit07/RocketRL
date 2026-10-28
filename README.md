@@ -33,6 +33,8 @@ Continue PPO training from the current improved checkpoint:
 .\.venv\Scripts\python.exe train3d.py --steps 262144 --eval-interval 16384 --seed 20261028
 ```
 
+For hard starts, `--engine-logit-scale 0.05 --steering-logit-scale 0.5` softens the transferred action logits before PPO rollouts so early engine and steering actions can be sampled. The deterministic action choice is unchanged at initialization. These settings affect the current training run and are stored in the single metrics log.
+
 Training gradually widens a continuous randomized distribution based on recent episode success. Two workers emphasize 6–10 m starts and ramp their minimum offset from 1 to 2.5 m. Two workers emphasize 10–16 m starts and ramp minimum offset from 2 to 3.5 m. The full-range evaluation distribution stays unchanged. The reward includes terminal landing success, motion shaping, and a clearance cost when the projected horizontal position still misses the pad. No target actions or teacher controller are used. `runs/3d_metrics.jsonl` stores evaluation history. The evaluator reports success by start height and distance. The acceptance goal is at least 85% landings over 200 previously unused full challenge seeds; the score is not claimed until that run passes.
 
 For targeted training on lateral control, `--focus-axis y --challenge-start 0.4` draws continuously randomized starts with larger Y than X error. This provides no target actions; the same full challenge evaluator determines whether the resulting checkpoint helps.
