@@ -98,6 +98,10 @@ class Rocket3DEnv(gym.Env):
         upward_excess = max(0.0, velocity[2] - 1.0)
         reward = -0.02 * frames - 0.02 * descent_excess**2
         reward -= 0.015 * upward_excess**2
+        # Keep the target visible to PPO throughout the flight. A pure
+        # potential difference telescopes over an episode and provides little
+        # incentive to correct large lateral errors before the first contact.
+        reward -= 0.025 * frames * float(np.dot(position[:2], position[:2]))
         reward -= 0.03 * np.linalg.norm(velocity[:2]) if altitude < 4.0 else 0.0
         if p.status == "landed":
             reward += 150.0
