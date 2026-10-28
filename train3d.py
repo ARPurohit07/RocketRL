@@ -155,6 +155,8 @@ def main():
     parser.add_argument("--seed", type=int, default=20261028)
     parser.add_argument("--restart-from-baseline", action="store_true")
     parser.add_argument("--learning-rate", type=float, default=3e-5)
+    parser.add_argument("--gamma", type=float, default=0.995)
+    parser.add_argument("--gae-lambda", type=float, default=0.98)
     parser.add_argument("--entropy-coef", type=float, default=0.005)
     parser.add_argument("--action-logit-scale", type=float, default=1.0)
     parser.add_argument("--focus-axis", choices=("y",))
@@ -165,6 +167,8 @@ def main():
         raise ValueError("Steps, evaluation interval and learning rate must be positive")
     if args.entropy_coef < 0 or args.action_logit_scale <= 0:
         raise ValueError("Entropy coefficient must be nonnegative and action scale positive")
+    if not 0 < args.gamma < 1 or not 0 < args.gae_lambda <= 1:
+        raise ValueError("Gamma must be in (0, 1); GAE lambda must be in (0, 1]")
     torch.set_num_threads(2)
     env = DummyVecEnv([
         make_env(challenge, focus_axis=args.focus_axis, height_ceiling=ceiling)
@@ -206,6 +210,8 @@ def main():
         )
         model.learning_rate = args.learning_rate
         model.lr_schedule = lambda _: args.learning_rate
+        model.gamma = args.gamma
+        model.gae_lambda = args.gae_lambda
         model.clip_range = lambda _: 0.05
         model.ent_coef = args.entropy_coef
         model.n_epochs = 4
