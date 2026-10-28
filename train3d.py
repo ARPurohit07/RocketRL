@@ -46,6 +46,7 @@ class TrainingMonitor(BaseCallback):
         mid_radius_start=2.0, mid_radius_target=3.5,
         run_config=None, prioritize_low_height=False,
         minimum_full_success=0.85,
+        full_workers=4, low_workers=2,
     ):
         super().__init__(verbose=0)
         self.total_steps = int(total_steps)
@@ -70,6 +71,8 @@ class TrainingMonitor(BaseCallback):
         self.run_config = run_config or {}
         self.prioritize_low_height = prioritize_low_height
         self.minimum_full_success = minimum_full_success
+        self.full_workers = full_workers
+        self.low_worker_end = full_workers + low_workers
 
     def _on_training_start(self):
         full = evaluate(self.model, FULL_EVAL_SEEDS, challenge=1.0)
@@ -159,9 +162,9 @@ class TrainingMonitor(BaseCallback):
         )):
             if done:
                 outcome = int(info.get("is_success", False))
-                if worker < 4:
+                if worker < self.full_workers:
                     self.outcomes.append(outcome)
-                elif worker < 6:
+                elif worker < self.low_worker_end:
                     self.low_outcomes.append(outcome)
                 else:
                     self.mid_outcomes.append(outcome)
@@ -180,7 +183,7 @@ class TrainingMonitor(BaseCallback):
                 min(1.0, self.start_challenge + self.num_timesteps / self.total_steps),
             )
             self.outcomes.clear()
-            for wrapped in self.training_env.envs[:4]:
+            for wrapped in self.training_env.envs[:self.full_workers]:
                 wrapped.unwrapped.set_challenge(self.challenge)
             low_rate = float(np.mean(self.low_outcomes)) if self.low_outcomes else 0.0
             mid_rate = float(np.mean(self.mid_outcomes)) if self.mid_outcomes else 0.0
@@ -199,9 +202,11 @@ class TrainingMonitor(BaseCallback):
                 self.mid_radius_start
                 + progress * (self.mid_radius_target - self.mid_radius_start),
             ))
-            for wrapped in self.training_env.envs[4:6]:
+            for wrapped in self.training_env.envs[
+                self.full_workers:self.low_worker_end
+            ]:
                 wrapped.unwrapped.set_min_start_radius(self.low_radius)
-            for wrapped in self.training_env.envs[6:8]:
+            for wrapped in self.training_env.envs[self.low_worker_end:]:
                 wrapped.unwrapped.set_min_start_radius(self.mid_radius)
             print(
                 f"Training step={self.num_timesteps} recent_success={rate:.1%} "
@@ -272,6 +277,9 @@ def main():
     parser.add_argument("--mid-height-ceiling", type=float, default=16.0)
     parser.add_argument("--mid-start-radius", type=float, default=2.0)
     parser.add_argument("--mid-target-radius", type=float, default=3.5)
+    parser.add_argument("--full-workers", type=int, default=4)
+    parser.add_argument("--low-workers", type=int, default=2)
+    parser.add_argument("--mid-workers", type=int, default=2)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
     if args.steps <= 0 or args.eval_interval <= 0 or args.learning_rate <= 0:
@@ -291,6 +299,11 @@ def main():
         raise ValueError("Low-offset radius range must increase from a nonnegative start")
     if not 0 <= args.mid_start_radius <= args.mid_target_radius:
         raise ValueError("Middle-offset radius range must increase from a nonnegative start")
+    if (
+        args.full_workers < 1 or args.low_workers < 1 or args.mid_workers < 1
+        or args.full_workers + args.low_workers + args.mid_workers != 8
+    ):
+        raise ValueError("Worker counts must be positive and sum to eight")
     torch.set_num_threads(2)
     env = DummyVecEnv([
         make_env(
@@ -299,12 +312,14 @@ def main():
             min_start_radius=radius,
         )
         for challenge, floor, ceiling, radius in (
-            [(args.challenge_start, None, None, 0.0)] * 4
-            + [(1.0, None, args.low_height_ceiling, args.low_start_radius)] * 2
+            [(args.challenge_start, None, None, 0.0)] * args.full_workers
+            + [(
+                1.0, None, args.low_height_ceiling, args.low_start_radius,
+            )] * args.low_workers
             + [(
                 1.0, args.mid_height_floor, args.mid_height_ceiling,
                 args.mid_start_radius,
-            )] * 2
+            )] * args.mid_workers
         )
     ])
     try:
@@ -379,6 +394,7 @@ def main():
             mid_radius_target=args.mid_target_radius,
             prioritize_low_height=args.prioritize_low_height,
             minimum_full_success=args.minimum_full_success,
+            full_workers=args.full_workers, low_workers=args.low_workers,
             run_config={**vars(args), "source_checkpoint": str(source)},
         )
         model.learn(
