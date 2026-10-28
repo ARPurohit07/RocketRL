@@ -1,2 +1,5 @@
 checkpoints/*.zip filter=lfs diff=lfs merge=lfs -text
 models/pythia-70m/model.safetensors filter=lfs diff=lfs merge=lfs -text
+*.py text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
