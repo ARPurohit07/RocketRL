@@ -93,6 +93,20 @@ def test_y_focus_keeps_x_recoverable_and_varies_both_y_directions():
     assert max(lateral) > 2.0
 
 
+def test_low_height_training_sampling_does_not_narrow_default_starts():
+    low = Rocket3DPhysics(challenge=1.0, height_ceiling=10.0)
+    full = Rocket3DPhysics(challenge=1.0)
+    low_heights = []
+    full_heights = []
+    for seed in range(64):
+        low.reset(seed=seed)
+        full.reset(seed=seed)
+        low_heights.append(low.position[2])
+        full_heights.append(full.position[2])
+    assert all(6.0 <= height <= 10.0 for height in low_heights)
+    assert max(full_heights) > 20.0
+
+
 def test_dual_axis_views_separate_lateral_state():
     state = torch.zeros((1, 8, 18))
     state[..., 0] = 0.4

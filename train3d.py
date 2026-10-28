@@ -22,9 +22,12 @@ METRICS = Path("runs/3d_metrics.jsonl")
 EVAL_SEEDS = tuple(range(1_000_000, 1_000_064))
 
 
-def make_env(challenge, focus_axis=None):
+def make_env(challenge, focus_axis=None, height_ceiling=None):
     return lambda: Monitor(FrameStackObservation(
-        Rocket3DEnv(challenge=challenge, focus_axis=focus_axis), 8
+        Rocket3DEnv(
+            challenge=challenge, focus_axis=focus_axis,
+            height_ceiling=height_ceiling,
+        ), 8
     ))
 
 
@@ -155,6 +158,7 @@ def main():
     parser.add_argument("--entropy-coef", type=float, default=0.005)
     parser.add_argument("--action-logit-scale", type=float, default=1.0)
     parser.add_argument("--focus-axis", choices=("y",))
+    parser.add_argument("--low-height-ceiling", type=float, default=10.0)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
     if args.steps <= 0 or args.eval_interval <= 0 or args.learning_rate <= 0:
@@ -163,8 +167,12 @@ def main():
         raise ValueError("Entropy coefficient must be nonnegative and action scale positive")
     torch.set_num_threads(2)
     env = DummyVecEnv([
-        make_env(challenge, focus_axis=args.focus_axis)
-        for challenge in ([args.challenge_start] * 4 + [0.5] * 2 + [1.0] * 2)
+        make_env(challenge, focus_axis=args.focus_axis, height_ceiling=ceiling)
+        for challenge, ceiling in (
+            [(args.challenge_start, None)] * 4
+            + [(1.0, args.low_height_ceiling)] * 2
+            + [(1.0, None)] * 2
+        )
     ])
     try:
         if not BASELINE.exists():

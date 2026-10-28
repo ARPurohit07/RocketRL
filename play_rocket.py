@@ -31,7 +31,7 @@ def main():
         viewer.cam.azimuth = 45
         viewer.cam.elevation = -25
         viewer.cam.distance = 24
-        viewer.cam.lookat[:] = (0, 0, 5)
+        viewer.cam.lookat[:] = (0, 0, 6)
     try:
         for episode in range(args.episodes):
             if viewer is not None and not viewer.is_running():
@@ -46,6 +46,9 @@ def main():
                 obs, reward, terminated, truncated, info = env.step(action)
                 total_reward += reward
                 if viewer is not None:
+                    x, y, z = info["position"]
+                    viewer.cam.lookat[:] = (0.25 * x, 0.25 * y, max(3.0, 0.5 * z))
+                    viewer.cam.distance = max(18.0, 1.6 * z)
                     viewer.sync()
                     time.sleep(env.unwrapped.control_repeat *
                                env.unwrapped.physics.DT)

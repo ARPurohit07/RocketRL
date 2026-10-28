@@ -12,13 +12,14 @@ class Rocket3DEnv(gym.Env):
 
     def __init__(
         self, challenge=1.0, control_repeat=2, gamma=0.99,
-        focus_axis=None,
+        focus_axis=None, height_ceiling=None,
     ):
         super().__init__()
         if control_repeat < 1:
             raise ValueError("control_repeat must be positive")
         self.physics = Rocket3DPhysics(
-            challenge=challenge, focus_axis=focus_axis
+            challenge=challenge, focus_axis=focus_axis,
+            height_ceiling=height_ceiling,
         )
         self.control_repeat = int(control_repeat)
         self.gamma = float(gamma)
@@ -101,7 +102,14 @@ class Rocket3DEnv(gym.Env):
         # Keep the target visible to PPO throughout the flight. A pure
         # potential difference telescopes over an episode and provides little
         # incentive to correct large lateral errors before the first contact.
-        reward -= 0.025 * frames * float(np.dot(position[:2], position[:2]))
+        reward -= 0.01 * frames * float(np.dot(position[:2], position[:2]))
+        # A rocket that is still moving away from the pad needs altitude to
+        # brake and translate. Penalize using that margin before touchdown.
+        lead_position = position[:2] + 0.7 * velocity[:2]
+        off_pad_distance = max(0.0, np.linalg.norm(lead_position) - 1.8)
+        required_clearance = 0.5 + 1.5 * off_pad_distance
+        altitude_shortfall = max(0.0, required_clearance - altitude)
+        reward -= 0.35 * frames * altitude_shortfall**2
         reward -= 0.03 * np.linalg.norm(velocity[:2]) if altitude < 4.0 else 0.0
         if p.status == "landed":
             reward += 150.0

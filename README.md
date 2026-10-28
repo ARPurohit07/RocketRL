@@ -4,13 +4,13 @@ RocketRL trains a Pythia-70M based PPO agent to land a rigid rocket on a circula
 
 The project was migrated from a 2D Box2D environment. The 3D policy applies one shared Pythia backbone to separate X and Y views of each observation. It has independent steering outputs and a shared engine decision. `checkpoints/baseline.zip` is the transferred 3D starting point. `checkpoints/improved.zip` is the single promoted PPO checkpoint. Training replaces that file only after a better result on fixed evaluation seeds and adequate compact-task retention. Git LFS tracks the checkpoints and the local Pythia weights.
 
-The dual-axis baseline landed 6/64 full challenge starts and 30/32 compact starts on development seeds `1000000–1000063`. The 85% goal remains an acceptance target until a separate 200-seed full challenge evaluation verifies it.
+Training compares checkpoints on development seeds `1000000–1000063`. The 85% goal remains an acceptance target until a separate 200-seed full challenge evaluation verifies it.
 
 ## Environment
 
 The MuJoCo scene has a free moving rocket body, four contact feet, a ground plane, and a circular 3 m landing pad. At full challenge, starts vary continuously over X and Y positions up to ±4 m, heights 6–24 m, horizontal drift up to ±1.2 m/s per axis, descent up to 2.8 m/s, and initial tilt and rotation. Vertically and laterally unrecoverable starts are resampled using a simple kinematic feasibility bound. There are no discrete easy/medium/hard modes.
 
-A landing requires at least three feet on the pad, horizontal speed below 0.8 m/s, vertical speed below 0.8 m/s, tilt below 0.20 rad, angular speed below 0.4 rad/s, and 12 consecutive stable physics steps. Hull contact, hard impact, off-pad contact, boundary exits, and unsettled contact are failures.
+A landing requires at least three feet on the pad, horizontal speed below 0.8 m/s, vertical speed below 0.8 m/s, tilt below 0.20 rad, angular speed below 0.4 rad/s, and 12 consecutive stable physics steps. Contact can settle for at most 150 physics steps before becoming a failure. Hull contact, hard impact, off-pad contact, boundary exits, and unsettled contact are failures.
 
 The 18-value state includes position and velocity expressed in the rocket's yaw frame, vertical position and velocity, attitude, angular velocity, foot contacts, and fuel. Eight states are stacked. The action space is `MultiDiscrete([2, 3, 3])`: engine off/on and independent steering in both horizontal axes.
 
@@ -33,7 +33,7 @@ Continue PPO training from the current improved checkpoint:
 .\.venv\Scripts\python.exe train3d.py --steps 262144 --eval-interval 16384 --seed 20261028
 ```
 
-Training gradually widens a single continuous randomized distribution based on recent episode success. `runs/3d_metrics.jsonl` stores evaluation history. The acceptance goal is at least 85% landings over 200 previously unused full challenge seeds; the score is not claimed until that run passes.
+Training gradually widens a continuous randomized distribution based on recent episode success. Two workers also sample full-range low-height starts (6–10 m), and two sample the full range throughout training. The full-range evaluation distribution stays unchanged. The reward includes terminal landing success, motion shaping, and a clearance cost when the projected horizontal position still misses the pad. No target actions or teacher controller are used. `runs/3d_metrics.jsonl` stores evaluation history. The acceptance goal is at least 85% landings over 200 previously unused full challenge seeds; the score is not claimed until that run passes.
 
 For targeted training on lateral control, `--focus-axis y --challenge-start 0.4` draws continuously randomized starts with larger Y than X error. This provides no target actions; the same full challenge evaluator determines whether the resulting checkpoint helps.
 
