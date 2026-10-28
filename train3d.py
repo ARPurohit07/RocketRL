@@ -34,7 +34,7 @@ def make_env(challenge, focus_axis=None, height_ceiling=None):
 class TrainingMonitor(BaseCallback):
     def __init__(
         self, total_steps, start_challenge, eval_interval, core_floor=0.90,
-        focus_axis=None, source=None,
+        focus_axis=None, source=None, compare_existing=False,
     ):
         super().__init__(verbose=0)
         self.total_steps = int(total_steps)
@@ -44,6 +44,7 @@ class TrainingMonitor(BaseCallback):
         self.core_floor = core_floor
         self.focus_axis = focus_axis
         self.source = Path(source) if source is not None else None
+        self.compare_existing = compare_existing or self.source != IMPROVED
         self.last_bucket = -1
         self.challenge = start_challenge
         self.outcomes = []
@@ -53,7 +54,8 @@ class TrainingMonitor(BaseCallback):
         near = evaluate(self.model, EVAL_SEEDS, challenge=0.25)
         core = evaluate(self.model, EVAL_SEEDS[:32], challenge=0.0)
         focus = self._focus_eval(self.model)
-        self.best_score = self._score(full, near, core, focus)
+        starting_score = self._score(full, near, core, focus)
+        prior_score = starting_score if IMPROVED.exists() and not self.compare_existing else None
         print(
             f"Starting 3D checkpoint: full={full['success_rate']:.1%} "
             f"near={near['success_rate']:.1%} "
@@ -61,18 +63,21 @@ class TrainingMonitor(BaseCallback):
         )
         if focus is not None:
             print(f"Starting focused benchmark: {focus}", flush=True)
-        if IMPROVED.exists() and self.source != IMPROVED:
+        if IMPROVED.exists() and self.compare_existing:
             previous = PPO.load(str(IMPROVED), device="cpu")
             prior_full = evaluate(previous, EVAL_SEEDS, challenge=1.0)
             prior_near = evaluate(previous, EVAL_SEEDS, challenge=0.25)
             prior_core = evaluate(previous, EVAL_SEEDS[:32], challenge=0.0)
             prior_focus = self._focus_eval(previous)
-            self.best_score = max(
-                self.best_score,
-                self._score(prior_full, prior_near, prior_core, prior_focus),
-            )
+            prior_score = self._score(prior_full, prior_near, prior_core, prior_focus)
             print(f"Protected improved checkpoint: full={prior_full['success_rate']:.1%} near={prior_near['success_rate']:.1%} core={prior_core['success_rate']:.1%}", flush=True)
             del previous
+        self.best_score = max(starting_score, prior_score) if prior_score is not None else starting_score
+        if core["success_rate"] >= self.core_floor and (
+            prior_score is None or starting_score > prior_score
+        ):
+            self.model.save(str(IMPROVED))
+            print(f"Saved improved starting policy to {IMPROVED}", flush=True)
 
     def _focus_eval(self, model):
         if self.focus_axis is None:
@@ -159,6 +164,7 @@ def main():
     parser.add_argument("--gae-lambda", type=float, default=0.98)
     parser.add_argument("--entropy-coef", type=float, default=0.005)
     parser.add_argument("--action-logit-scale", type=float, default=1.0)
+    parser.add_argument("--position-scale", type=float, default=1.0)
     parser.add_argument("--train-lora", action="store_true")
     parser.add_argument("--focus-axis", choices=("y",))
     parser.add_argument("--low-height-ceiling", type=float, default=10.0)
@@ -166,8 +172,8 @@ def main():
     args = parser.parse_args()
     if args.steps <= 0 or args.eval_interval <= 0 or args.learning_rate <= 0:
         raise ValueError("Steps, evaluation interval and learning rate must be positive")
-    if args.entropy_coef < 0 or args.action_logit_scale <= 0:
-        raise ValueError("Entropy coefficient must be nonnegative and action scale positive")
+    if args.entropy_coef < 0 or args.action_logit_scale <= 0 or args.position_scale <= 0:
+        raise ValueError("Entropy coefficient must be nonnegative and scales positive")
     if not 0 < args.gamma < 1 or not 0 < args.gae_lambda <= 1:
         raise ValueError("Gamma must be in (0, 1); GAE lambda must be in (0, 1]")
     torch.set_num_threads(2)
@@ -191,6 +197,11 @@ def main():
             with torch.no_grad():
                 model.policy.action_net.weight.mul_(args.action_logit_scale)
                 model.policy.action_net.bias.mul_(args.action_logit_scale)
+        if args.position_scale != 1.0:
+            with torch.no_grad():
+                extractor = model.policy.features_extractor
+                extractor.input_adapter[0].weight[:, 0].mul_(args.position_scale)
+                extractor.residual[0].weight[:, 0].mul_(args.position_scale)
         env.seed(args.seed)
         for parameter in model.policy.parameters():
             parameter.requires_grad = False
@@ -229,6 +240,7 @@ def main():
         callback = TrainingMonitor(
             args.steps, args.challenge_start, args.eval_interval,
             focus_axis=args.focus_axis, source=source,
+            compare_existing=args.position_scale != 1.0,
         )
         model.learn(
             total_timesteps=args.steps,
