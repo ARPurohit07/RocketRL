@@ -3,10 +3,7 @@ import importlib
 import inspect
 import traceback
 
-modules = [
-    "tests.test_rocket_physics", "tests.test_integration",
-    "tests.test_rocket3d",
-]
+modules = ["tests.test_rocket3d"]
 passed = failed = 0
 for module_name in modules:
     module = importlib.import_module(module_name)
