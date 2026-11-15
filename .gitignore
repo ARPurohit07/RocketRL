@@ -7,4 +7,6 @@ runs/
 .pytest_cache/
 rocket_pythia_phase2_best.zip
 models/pythia-70m/.cache/
+checkpoints/*.zip
+models/pythia-70m/model.safetensors
 
