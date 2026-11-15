@@ -2,7 +2,7 @@
 
 RocketRL trains a Pythia-70M based PPO agent to land a rigid rocket on a circular pad in MuJoCo. The rocket moves and rotates in three dimensions. The policy controls the main engine and two independent steering axes. It learns from environment rewards; no teacher controller or action labels are used.
 
-The project was migrated from a 2D Box2D environment. The 3D policy applies one shared Pythia backbone to separate X and Y views of each observation. It has independent steering outputs and a shared engine decision. `checkpoints/baseline.zip` is the transferred 3D starting point. `checkpoints/improved.zip` is the single promoted PPO checkpoint. Training replaces that file only after a better result on fixed evaluation seeds and adequate compact-task retention. Git LFS tracks the checkpoints and the local Pythia weights.
+The 3D policy applies one shared Pythia backbone to separate X and Y views of each observation. It has independent steering outputs and a shared engine decision. `checkpoints/baseline.zip` is the transferred 3D starting point. `checkpoints/improved.zip` is the single promoted PPO checkpoint. Training replaces that file only after a better result on fixed evaluation seeds and adequate compact-task retention. Git LFS tracks the checkpoints and the local Pythia weights.
 
 Training compares full-range checkpoints on 200 development seeds `1000000–1000199`, a focused 96-seed low-height offset set, and smaller near and compact retention checks.
 
@@ -54,6 +54,4 @@ For targeted training on lateral control, `--focus-axis y --challenge-start 0.4`
 
 ## Source control
 
-The Git repository tracks source, tests, baseline and improved checkpoints, and the Pythia weights with Git LFS. The local virtual environment, logs, and metrics are ignored. No remote is configured.
-
-The previous 2D source is preserved in `legacy2d/` for historical reference. Active 3D commands are at the repository root.
+The Git repository tracks source, tests, baseline and improved checkpoints, and the Pythia weights with Git LFS. The local virtual environment, editor settings, logs, and metrics are ignored. Run `git lfs pull` after cloning to download the models.
